@@ -10,15 +10,18 @@ Apple silicon and Intel. It is a port of
 
 ## Download
 
-Go to **[Releases](../../releases/latest)** and download the package for your viewer:
+Current version: **1.5.3.2-port.2**. Click the package for your viewer:
 
-| Viewer | Package | macOS | Mac |
+| Viewer | Download | macOS | Mac |
 |---|---|---|---|
-| IsiX DICOM Viewer 6.0.3+ (GitHub build) | `UMMPerfusion-IsiX-<version>.zip` | 15 or later | Apple silicon and Intel |
-| Horos 4.0.1 | `UMMPerfusion-Horos-<version>.zip` | 11 or later | Apple silicon and Intel |
+| IsiX DICOM Viewer 6.0.3+ (GitHub build) | [**UMMPerfusion-IsiX-1.5.3.2-port.2.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-IsiX-1.5.3.2-port.2.zip) | 15 or later | Apple silicon and Intel |
+| Horos 4.0.1 | [**UMMPerfusion-Horos-1.5.3.2-port.2.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-Horos-1.5.3.2-port.2.zip) | 11 or later | Apple silicon and Intel |
 
 Each package works on both kinds of Mac. The App Store version of IsiX loads no plugins; use the
 [GitHub build of IsiX](https://github.com/ThalesMMS/IsiX-DICOM-Viewer-macOS/releases).
+
+Optional test data: [DSC_Phantom_DICOM.zip](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/DSC_Phantom_DICOM.zip) (synthetic DSC series, see below).
+All files are also in the [`downloads/`](downloads) folder.
 
 ### Install
 
@@ -56,7 +59,7 @@ Full list: [CHANGES.md](CHANGES.md).
 
 [`DSC_Phantom/`](DSC_Phantom) contains a generator for a synthetic DSC series with known CBV, CBF
 and MTT (clean, noise, bolus delay, leakage), with the answer key and the expected plugin
-results. The ready-made DICOM files are attached to each release as `DSC_Phantom_DICOM.zip`.
+results. The ready-made DICOM files are in [`downloads/DSC_Phantom_DICOM.zip`](downloads/DSC_Phantom_DICOM.zip).
 
 ```sh
 python3 DSC_Phantom/make_dsc_phantom.py DSC_Phantom   # needs numpy
