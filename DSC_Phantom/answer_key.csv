@@ -1,0 +1,62 @@
+series,series_name,block,cbv_ml_100ml,cbf_ml_100ml_min,mtt_s,rcbv_vs_nawm,rcbf_vs_nawm,delay_s,leakage_k2_per_s,noise_sigma
+all,background,NAWM,2.0,24.0,5.0,1.0,1.0,,0,
+1,DSC phantom 1 - clean,R1C1,1.0,20.0,3.0,0.5,0.833,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R1C2,2.0,40.0,3.0,1.0,1.667,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R1C3,4.0,80.0,3.0,2.0,3.333,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R1C4,6.0,120.0,3.0,3.0,5.0,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R1C5,8.0,160.0,3.0,4.0,6.667,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R2C1,1.0,13.33,4.5,0.5,0.556,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R2C2,2.0,26.67,4.5,1.0,1.111,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R2C3,4.0,53.33,4.5,2.0,2.222,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R2C4,6.0,80.0,4.5,3.0,3.333,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R2C5,8.0,106.67,4.5,4.0,4.444,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R3C1,1.0,10.0,6.0,0.5,0.417,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R3C2,2.0,20.0,6.0,1.0,0.833,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R3C3,4.0,40.0,6.0,2.0,1.667,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R3C4,6.0,60.0,6.0,3.0,2.5,0.0,0.0,0.0
+1,DSC phantom 1 - clean,R3C5,8.0,80.0,6.0,4.0,3.333,0.0,0.0,0.0
+2,DSC phantom 2 - noise SNR 67,R1C1,1.0,20.0,3.0,0.5,0.833,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R1C2,2.0,40.0,3.0,1.0,1.667,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R1C3,4.0,80.0,3.0,2.0,3.333,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R1C4,6.0,120.0,3.0,3.0,5.0,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R1C5,8.0,160.0,3.0,4.0,6.667,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R2C1,1.0,13.33,4.5,0.5,0.556,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R2C2,2.0,26.67,4.5,1.0,1.111,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R2C3,4.0,53.33,4.5,2.0,2.222,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R2C4,6.0,80.0,4.5,3.0,3.333,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R2C5,8.0,106.67,4.5,4.0,4.444,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R3C1,1.0,10.0,6.0,0.5,0.417,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R3C2,2.0,20.0,6.0,1.0,0.833,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R3C3,4.0,40.0,6.0,2.0,1.667,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R3C4,6.0,60.0,6.0,3.0,2.5,0.0,0.0,15.0
+2,DSC phantom 2 - noise SNR 67,R3C5,8.0,80.0,6.0,4.0,3.333,0.0,0.0,15.0
+3,DSC phantom 3 - tissue delay 3 s,R1C1,1.0,20.0,3.0,0.5,0.833,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R1C2,2.0,40.0,3.0,1.0,1.667,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R1C3,4.0,80.0,3.0,2.0,3.333,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R1C4,6.0,120.0,3.0,3.0,5.0,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R1C5,8.0,160.0,3.0,4.0,6.667,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R2C1,1.0,13.33,4.5,0.5,0.556,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R2C2,2.0,26.67,4.5,1.0,1.111,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R2C3,4.0,53.33,4.5,2.0,2.222,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R2C4,6.0,80.0,4.5,3.0,3.333,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R2C5,8.0,106.67,4.5,4.0,4.444,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R3C1,1.0,10.0,6.0,0.5,0.417,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R3C2,2.0,20.0,6.0,1.0,0.833,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R3C3,4.0,40.0,6.0,2.0,1.667,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R3C4,6.0,60.0,6.0,3.0,2.5,3.0,0.0,0.0
+3,DSC phantom 3 - tissue delay 3 s,R3C5,8.0,80.0,6.0,4.0,3.333,3.0,0.0,0.0
+4,DSC phantom 4 - leakage,R1C1,1.0,20.0,3.0,0.5,0.833,0.0,0.004,0.0
+4,DSC phantom 4 - leakage,R1C2,2.0,40.0,3.0,1.0,1.667,0.0,0.004,0.0
+4,DSC phantom 4 - leakage,R1C3,4.0,80.0,3.0,2.0,3.333,0.0,0.004,0.0
+4,DSC phantom 4 - leakage,R1C4,6.0,120.0,3.0,3.0,5.0,0.0,0.004,0.0
+4,DSC phantom 4 - leakage,R1C5,8.0,160.0,3.0,4.0,6.667,0.0,0.004,0.0
+4,DSC phantom 4 - leakage,R2C1,1.0,13.33,4.5,0.5,0.556,0.0,0.008,0.0
+4,DSC phantom 4 - leakage,R2C2,2.0,26.67,4.5,1.0,1.111,0.0,0.008,0.0
+4,DSC phantom 4 - leakage,R2C3,4.0,53.33,4.5,2.0,2.222,0.0,0.008,0.0
+4,DSC phantom 4 - leakage,R2C4,6.0,80.0,4.5,3.0,3.333,0.0,0.008,0.0
+4,DSC phantom 4 - leakage,R2C5,8.0,106.67,4.5,4.0,4.444,0.0,0.008,0.0
+4,DSC phantom 4 - leakage,R3C1,1.0,10.0,6.0,0.5,0.417,0.0,-0.004,0.0
+4,DSC phantom 4 - leakage,R3C2,2.0,20.0,6.0,1.0,0.833,0.0,-0.004,0.0
+4,DSC phantom 4 - leakage,R3C3,4.0,40.0,6.0,2.0,1.667,0.0,-0.004,0.0
+4,DSC phantom 4 - leakage,R3C4,6.0,60.0,6.0,3.0,2.5,0.0,-0.004,0.0
+4,DSC phantom 4 - leakage,R3C5,8.0,80.0,6.0,4.0,3.333,0.0,-0.004,0.0

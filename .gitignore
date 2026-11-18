@@ -1,0 +1,6 @@
+build/
+build-horos/
+dist/
+DSC_Phantom/[1-4]_*/
+*.o
+.DS_Store

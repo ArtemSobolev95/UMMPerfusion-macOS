@@ -1,0 +1,805 @@
+//
+//  UMMPDSCToolsController.m — "UMMPerfusion DSC Tools" window (IsiX port). Manual reference counting.
+//
+
+#import "UMMPDSCToolsController.h"
+#import "UMMPDSCEngine.h"
+#import "UMMPerfusionFilter.h"
+#import "UMMPCurvesController.h"
+#import <OsiriXAPI/ViewerController.h>
+#if __has_include(<OsiriXAPI/ViewerController+ROI.h>)   // IsiX; in Horos these are in ViewerController.h
+#import <OsiriXAPI/ViewerController+ROI.h>
+#endif
+#import <OsiriXAPI/DCMPix.h>
+#import <OsiriXAPI/DCMView.h>
+#import <OsiriXAPI/ROI.h>
+#import <OsiriXAPI/Notifications.h>
+#include <math.h>
+#include <stdlib.h>
+
+#define UMMP_NOT_COMPUTED -1.0f
+
+static int UMMPCompareFloats(const void *a, const void *b)
+{
+    float x = *(const float *)a, y = *(const float *)b;
+    return (x > y) - (x < y);
+}
+
+static NSTextField *UMMPLabel(NSString *text)
+{
+    NSTextField *f = [NSTextField labelWithString:text];
+    [f setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    return f;
+}
+
+static NSTextField *UMMPNumberField(NSString *value, CGFloat width)
+{
+    NSTextField *f = [NSTextField textFieldWithString:value];
+    [f setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    [f setAlignment:NSTextAlignmentRight];
+    [[f widthAnchor] constraintEqualToConstant:width].active = YES;
+    return f;
+}
+
+static NSButton *UMMPCheckbox(NSString *title, id target, SEL action)
+{
+    NSButton *b = [NSButton checkboxWithTitle:title target:target action:action];
+    [b setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    return b;
+}
+
+static NSButton *UMMPButton(NSString *title, id target, SEL action)
+{
+    NSButton *b = [NSButton buttonWithTitle:title target:target action:action];
+    [b setControlSize:NSControlSizeSmall];
+    [b setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    return b;
+}
+
+static NSStackView *UMMPRow(NSArray *views)
+{
+    NSStackView *row = [NSStackView stackViewWithViews:views];
+    [row setOrientation:NSUserInterfaceLayoutOrientationHorizontal];
+    [row setAlignment:NSLayoutAttributeFirstBaseline];
+    [row setSpacing:6];
+    return row;
+}
+
+static NSBox *UMMPSection(NSString *title, NSView *content)
+{
+    NSBox *box = [[[NSBox alloc] init] autorelease];
+    [box setTitle:title];
+    [box setTitleFont:[NSFont boldSystemFontOfSize:[NSFont smallSystemFontSize]]];
+    [box setContentViewMargins:NSMakeSize(8, 8)];
+    [content setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [[box contentView] addSubview:content];
+    NSView *cv = [box contentView];
+    [NSLayoutConstraint activateConstraints:@[
+        [[content leadingAnchor] constraintEqualToAnchor:[cv leadingAnchor] constant:8],
+        [[content trailingAnchor] constraintEqualToAnchor:[cv trailingAnchor] constant:-8],
+        [[content topAnchor] constraintEqualToAnchor:[cv topAnchor] constant:6],
+        [[content bottomAnchor] constraintEqualToAnchor:[cv bottomAnchor] constant:-8]]];
+    return box;
+}
+
+@interface UMMPDSCToolsController ()
+{
+    ViewerController *_viewer;            // not retained; cleared when the viewer closes
+    UMMPerfusionFilter *_filter;          // not retained (the plugin's filter lives as long as the app)
+
+    NSTextField *_viewerLabel;
+
+    NSButton *_maskBox, *_leakageBox, *_osvdBox, *_firstPassBox, *_clampBox;
+    NSButton *_dceWholeBox, *_dceSmoothBox, *_autoRCBVBox;
+    NSPopUpButton *_clutPopup;
+    NSTextField *_maskField, *_oiField;
+
+    NSPopUpButton *_referencePopup;
+    NSTableView *_table;
+    NSMutableArray *_rows;                // NSDictionary per ROI
+    NSMutableArray *_roiEntries;          // NSDictionary: roi, slice, movie, title
+    double _referenceMean;
+    NSString *_referenceTitle;
+
+    NSPopUpButton *_aifPopup;
+    NSTextField *_baselineField;
+    NSTextField *_aifResult;
+}
+@end
+
+@implementation UMMPDSCToolsController
+
++ (UMMPDSCToolsController *)sharedController
+{
+    static UMMPDSCToolsController *shared = nil;
+    if (!shared) shared = [[UMMPDSCToolsController alloc] init];
+    return shared;
+}
+
+- (id)init
+{
+    NSPanel *panel = [[[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 680, 700)
+                                                 styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                                                           NSWindowStyleMaskResizable | NSWindowStyleMaskUtilityWindow
+                                                   backing:NSBackingStoreBuffered defer:YES] autorelease];
+    self = [super initWithWindow:panel];
+    if (self) {
+        [panel setTitle:@"UMMPerfusion DSC Tools"];
+        // Stays above the viewers while you work in them; hidden only while IsiX is in the background.
+        [panel setFloatingPanel:YES];
+        [panel setLevel:NSFloatingWindowLevel];
+        [panel setHidesOnDeactivate:YES];
+        [panel setBecomesKeyOnlyIfNeeded:NO];
+        [panel setCollectionBehavior:NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace];
+        [panel setReleasedWhenClosed:NO];
+        [panel setMinSize:NSMakeSize(600, 680)];
+        [panel setDelegate:self];
+        _rows = [[NSMutableArray alloc] init];
+        _roiEntries = [[NSMutableArray alloc] init];
+        _referenceMean = NAN;
+        [self buildInterface];
+        [self loadSettings];
+        [panel center];
+        [panel setFrameAutosaveName:@"UMMPDSCToolsWindow"];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(viewerWillClose:)
+                                                     name:OsirixCloseViewerNotification object:nil];
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [_rows release];
+    [_roiEntries release];
+    [_referenceTitle release];
+    [super dealloc];
+}
+
+#pragma mark - Interface
+
+- (void)buildInterface
+{
+    NSView *content = [[self window] contentView];
+
+    _viewerLabel = UMMPLabel(@"No viewer");
+    [_viewerLabel setLineBreakMode:NSLineBreakByTruncatingMiddle];
+    [_viewerLabel setFont:[NSFont boldSystemFontOfSize:[NSFont smallSystemFontSize]]];
+    NSButton *useFront = UMMPButton(@"Use Frontmost Viewer", self, @selector(useFrontmostViewer:));
+    NSButton *curves = UMMPButton(@"Time Curves…", self, @selector(showCurves:));
+    NSStackView *viewerRow = UMMPRow(@[UMMPLabel(@"Viewer:"), _viewerLabel, useFront, curves]);
+    [_viewerLabel setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+
+    // Options
+    _maskBox = UMMPCheckbox(@"Brain mask: skip pixels with baseline signal below", self, @selector(optionChanged:));
+    _maskField = UMMPNumberField(@"10", 44); [_maskField setTarget:self]; [_maskField setAction:@selector(optionChanged:)];
+    _leakageBox = UMMPCheckbox(@"Leakage correction (Boxerman–Weisskoff), with a K2 map", self, @selector(optionChanged:));
+    _osvdBox = UMMPCheckbox(@"oSVD deconvolution (bolus-delay insensitive); maximum oscillation index", self, @selector(optionChanged:));
+    _oiField = UMMPNumberField(@"0.095", 54); [_oiField setTarget:self]; [_oiField setAction:@selector(optionChanged:)];
+    _firstPassBox = UMMPCheckbox(@"Blood volume from the first pass only (excludes recirculation)", self, @selector(optionChanged:));
+    _clampBox = UMMPCheckbox(@"Keep pixels whose signal reaches zero in some frame (clamp to 1% of baseline)", self, @selector(optionChanged:));
+    NSTextField *optionsNote = UMMPLabel(@"Used by Fast Deconvolution with the T2*-DSC tracer, from the next calculation on.");
+    _dceWholeBox = UMMPCheckbox(@"Fit the whole slice within the brain mask, not only the tissue rectangle (slow)", self, @selector(optionChanged:));
+    _dceSmoothBox = UMMPCheckbox(@"Smooth 3×3 before fitting (fewer outlier pixels, lower resolution)", self, @selector(optionChanged:));
+    _autoRCBVBox = UMMPCheckbox(@"Create an rCBV map automatically (reference: ROI named “NAWM” or “ref”, else whole-brain median)", self, @selector(optionChanged:));
+    _clutPopup = [[[NSPopUpButton alloc] init] autorelease];
+    [_clutPopup setControlSize:NSControlSizeSmall];
+    [_clutPopup setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    [_clutPopup addItemsWithTitles:@[@"Rainbow2", @"Rainbow", @"Rainbow3", @"Perfusion", @"Jet", @"PPU Viridis", @"PPU Inferno", @"HotIron", @"None (grey)"]];
+    [_clutPopup setTarget:self];
+    [_clutPopup setAction:@selector(optionChanged:)];
+    NSTextField *dceTitle = UMMPLabel(@"DCE pixel maps (compartment models, Modified Tofts):");
+    [dceTitle setFont:[NSFont boldSystemFontOfSize:[NSFont smallSystemFontSize]]];
+    [optionsNote setTextColor:[NSColor secondaryLabelColor]];
+    NSStackView *options = [NSStackView stackViewWithViews:@[
+        UMMPRow(@[_maskBox, _maskField, UMMPLabel(@"% of the bright end (99th percentile)")]),
+        _leakageBox,
+        UMMPRow(@[_osvdBox, _oiField]),
+        _firstPassBox, _clampBox, _autoRCBVBox, optionsNote, dceTitle, _dceWholeBox, _dceSmoothBox,
+        UMMPRow(@[UMMPLabel(@"Colour table for new maps (DSC and DCE):"), _clutPopup])]];
+    [options setOrientation:NSUserInterfaceLayoutOrientationVertical];
+    [options setAlignment:NSLayoutAttributeLeading];
+    [options setSpacing:5];
+
+    // ROI statistics
+    _referencePopup = [[[NSPopUpButton alloc] init] autorelease];
+    [_referencePopup setControlSize:NSControlSizeSmall];
+    [_referencePopup setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    [_referencePopup setTarget:self];
+    [_referencePopup setAction:@selector(measure:)];
+    NSStackView *refRow = UMMPRow(@[UMMPLabel(@"Reference ROI (e.g. contralateral NAWM):"), _referencePopup,
+                                    UMMPButton(@"Refresh ROIs", self, @selector(refreshROIs:))]);
+
+    _table = [[[NSTableView alloc] init] autorelease];
+    [_table setUsesAlternatingRowBackgroundColors:YES];
+    [_table setColumnAutoresizingStyle:NSTableViewUniformColumnAutoresizingStyle];
+    [_table setDataSource:self];
+    [_table setDelegate:self];
+    NSArray *columns = @[@[@"name", @"ROI", @150], @[@"slice", @"Slice", @44], @[@"valid", @"Valid", @54],
+                         @[@"excluded", @"Excl. (−1)", @64], @[@"mean", @"Mean", @70], @[@"sd", @"SD", @64],
+                         @[@"median", @"Median", @70], @[@"min", @"Min", @60], @[@"max", @"Max", @60],
+                         @[@"ratio", @"Mean ÷ ref", @74]];
+    for (NSArray *c in columns) {
+        NSTableColumn *col = [[[NSTableColumn alloc] initWithIdentifier:[c objectAtIndex:0]] autorelease];
+        [[col headerCell] setStringValue:[c objectAtIndex:1]];
+        [col setWidth:[[c objectAtIndex:2] doubleValue]];
+        [[col dataCell] setFont:[NSFont monospacedDigitSystemFontOfSize:[NSFont smallSystemFontSize] weight:NSFontWeightRegular]];
+        if (![[c objectAtIndex:0] isEqualToString:@"name"]) [[col dataCell] setAlignment:NSTextAlignmentRight];
+        [_table addTableColumn:col];
+    }
+    NSScrollView *scroll = [[[NSScrollView alloc] init] autorelease];
+    [scroll setDocumentView:_table];
+    [scroll setHasVerticalScroller:YES];
+    [scroll setHasHorizontalScroller:YES];
+    [scroll setBorderType:NSBezelBorder];
+    [[scroll heightAnchor] constraintGreaterThanOrEqualToConstant:150].active = YES;
+    [scroll setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
+
+    NSTextField *statsNote = UMMPLabel(@"Pixels marked −1 (not computed: no signal, outside the mask or slice range) are left out.");
+    [statsNote setTextColor:[NSColor secondaryLabelColor]];
+    NSStackView *statsButtons = UMMPRow(@[UMMPButton(@"Measure", self, @selector(measure:)),
+                                          UMMPButton(@"Create Normalized Map", self, @selector(createNormalizedMap:)),
+                                          UMMPButton(@"Export CSV…", self, @selector(exportCSV:))]);
+    NSStackView *stats = [NSStackView stackViewWithViews:@[refRow, scroll, statsNote, statsButtons]];
+    [stats setOrientation:NSUserInterfaceLayoutOrientationVertical];
+    [stats setAlignment:NSLayoutAttributeLeading];
+    [stats setSpacing:6];
+    [[scroll widthAnchor] constraintEqualToAnchor:[stats widthAnchor]].active = YES;
+
+    // AIF
+    _aifPopup = [[[NSPopUpButton alloc] init] autorelease];
+    [_aifPopup setControlSize:NSControlSizeSmall];
+    [_aifPopup setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    _baselineField = UMMPNumberField(@"10", 40);
+    _aifResult = [NSTextField wrappingLabelWithString:@"Open the 4D DSC series in the viewer to check the arterial ROI or to search for AIF voxels on the current slice."];
+    [_aifResult setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    [_aifResult setSelectable:YES];
+    NSStackView *aifRow = UMMPRow(@[UMMPLabel(@"Arterial ROI:"), _aifPopup, UMMPLabel(@"Baseline frames:"), _baselineField]);
+    NSStackView *aifButtons = UMMPRow(@[UMMPButton(@"Check AIF", self, @selector(checkAIF:)),
+                                        UMMPButton(@"Find AIF Voxels on Current Slice", self, @selector(findAIF:))]);
+    NSStackView *aif = [NSStackView stackViewWithViews:@[aifRow, aifButtons, _aifResult]];
+    [aif setOrientation:NSUserInterfaceLayoutOrientationVertical];
+    [aif setAlignment:NSLayoutAttributeLeading];
+    [aif setSpacing:6];
+    [[_aifResult widthAnchor] constraintEqualToAnchor:[aif widthAnchor]].active = YES;
+
+    NSBox *optionsBox = UMMPSection(@"Calculation options", options);
+    NSBox *statsBox = UMMPSection(@"ROI statistics and normalisation (map viewer)", stats);
+    NSBox *aifBox = UMMPSection(@"Arterial input function (4D series)", aif);
+
+    NSStackView *main = [NSStackView stackViewWithViews:@[viewerRow, optionsBox, statsBox, aifBox]];
+    [main setOrientation:NSUserInterfaceLayoutOrientationVertical];
+    [main setAlignment:NSLayoutAttributeLeading];
+    [main setSpacing:10];
+    [main setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [content addSubview:main];
+    [NSLayoutConstraint activateConstraints:@[
+        [[main leadingAnchor] constraintEqualToAnchor:[content leadingAnchor] constant:14],
+        [[main trailingAnchor] constraintEqualToAnchor:[content trailingAnchor] constant:-14],
+        [[main topAnchor] constraintEqualToAnchor:[content topAnchor] constant:12],
+        [[main bottomAnchor] constraintEqualToAnchor:[content bottomAnchor] constant:-14],
+        [[optionsBox widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
+        [[statsBox widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
+        [[aifBox widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
+        [[viewerRow widthAnchor] constraintEqualToAnchor:[main widthAnchor]]]];
+    [statsBox setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
+}
+
+#pragma mark - Viewer
+
+- (void)showForViewer:(ViewerController *)viewer filter:(UMMPerfusionFilter *)filter
+{
+    _filter = filter;
+    [self setViewer:viewer];
+    [self showWindow:nil];
+    [[self window] makeKeyAndOrderFront:nil];
+}
+
+- (void)setViewer:(ViewerController *)viewer
+{
+    _viewer = viewer;
+    NSString *title = [[_viewer window] title];
+    [_viewerLabel setStringValue:_viewer ? (title ? title : @"Viewer") : @"No viewer"];
+    [_rows removeAllObjects];
+    [_table reloadData];
+    [self refreshROIs:nil];
+}
+
+- (void)useFrontmostViewer:(id)sender
+{
+    ViewerController *front = [ViewerController frontMostDisplayed2DViewer];
+    if (front) [self setViewer:front];
+}
+
+- (void)showCurves:(id)sender
+{
+    [[UMMPCurvesController sharedController] showForViewer:_viewer ? _viewer : [ViewerController frontMostDisplayed2DViewer]];
+}
+
+- (void)viewerWillClose:(NSNotification *)note
+{
+    if ([note object] == _viewer) [self setViewer:nil];
+}
+
+- (BOOL)requireViewer
+{
+    if (_viewer) return YES;
+    NSBeep();
+    [_viewerLabel setStringValue:@"No viewer: click “Use Frontmost Viewer”"];
+    return NO;
+}
+
+#pragma mark - Options
+
+- (void)loadSettings
+{
+    UMMPDSCSettings s = UMMPDSCLoadSettings();
+    [_maskBox setState:s.mask ? NSControlStateValueOn : NSControlStateValueOff];
+    [_maskField setStringValue:[NSString stringWithFormat:@"%g", s.maskFraction * 100.0]];
+    [_leakageBox setState:s.leakage ? NSControlStateValueOn : NSControlStateValueOff];
+    [_osvdBox setState:s.oSVD ? NSControlStateValueOn : NSControlStateValueOff];
+    [_oiField setStringValue:[NSString stringWithFormat:@"%g", s.oiThreshold]];
+    [_firstPassBox setState:s.firstPass ? NSControlStateValueOn : NSControlStateValueOff];
+    [_clampBox setState:s.clamp ? NSControlStateValueOn : NSControlStateValueOff];
+    [_maskField setEnabled:s.mask];
+    NSDictionary *d = [[NSUserDefaults standardUserDefaults] persistentDomainForName:@"com.osirix.UMMPerfusion.DSC"];
+    [_dceWholeBox setState:[[d objectForKey:@"dceWholeSlice"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff];
+    [_dceSmoothBox setState:[[d objectForKey:@"dceSmooth"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff];
+    id autoRCBV = [d objectForKey:@"autoRCBV"];
+    [_autoRCBVBox setState:(autoRCBV ? [autoRCBV boolValue] : YES) ? NSControlStateValueOn : NSControlStateValueOff];
+    id clut = [d objectForKey:@"mapCLUT"];
+    NSString *clutTitle = [clut isKindOfClass:[NSString class]] ? ([clut length] ? clut : @"None (grey)") : @"Rainbow2";
+    if ([_clutPopup itemWithTitle:clutTitle]) [_clutPopup selectItemWithTitle:clutTitle];
+    [_oiField setEnabled:s.oSVD];
+}
+
+- (void)optionChanged:(id)sender
+{
+    UMMPDSCSettings s = UMMPDSCLoadSettings();
+    s.mask = ([_maskBox state] == NSControlStateValueOn);
+    double fraction = [_maskField doubleValue] / 100.0;
+    if (fraction >= 0.0 && fraction < 1.0) s.maskFraction = fraction;
+    s.leakage = ([_leakageBox state] == NSControlStateValueOn);
+    s.oSVD = ([_osvdBox state] == NSControlStateValueOn);
+    double oi = [_oiField doubleValue];
+    if (oi > 0.0 && oi < 1.0) s.oiThreshold = oi;
+    s.firstPass = ([_firstPassBox state] == NSControlStateValueOn);
+    s.clamp = ([_clampBox state] == NSControlStateValueOn);
+    UMMPDSCSaveSettings(s);
+    NSMutableDictionary *d = [NSMutableDictionary dictionaryWithDictionary:
+        [[NSUserDefaults standardUserDefaults] persistentDomainForName:@"com.osirix.UMMPerfusion.DSC"] ?: @{}];
+    [d setObject:@([_dceWholeBox state] == NSControlStateValueOn) forKey:@"dceWholeSlice"];
+    [d setObject:@([_dceSmoothBox state] == NSControlStateValueOn) forKey:@"dceSmooth"];
+    [d setObject:@([_autoRCBVBox state] == NSControlStateValueOn) forKey:@"autoRCBV"];
+    NSString *clutTitle = [_clutPopup titleOfSelectedItem];
+    [d setObject:([clutTitle hasPrefix:@"None"] ? @"" : clutTitle) forKey:@"mapCLUT"];
+    [[NSUserDefaults standardUserDefaults] setPersistentDomain:d forName:@"com.osirix.UMMPerfusion.DSC"];
+    [self loadSettings];
+}
+
+- (void)windowDidBecomeKey:(NSNotification *)note
+{
+    [self loadSettings];
+}
+
+#pragma mark - ROIs
+
+// Every ROI of the viewer: those of the frame shown for map viewers, those of all frames for 4D series.
+- (void)refreshROIs:(id)sender
+{
+    NSString *previousRef = [[[_referencePopup titleOfSelectedItem] copy] autorelease];
+    NSString *previousAIF = [[[_aifPopup titleOfSelectedItem] copy] autorelease];
+    [_roiEntries removeAllObjects];
+    [_referencePopup removeAllItems];
+    [_aifPopup removeAllItems];
+    if (!_viewer) return;
+
+    long movies = [_viewer maxMovieIndex];
+    NSMutableSet *seen = [NSMutableSet set];
+    for (long m = 0; m < movies; m++) {
+        NSArray *perSlice = [_viewer roiList:m];
+        for (NSUInteger s = 0; s < [perSlice count]; s++) {
+            for (ROI *roi in [perSlice objectAtIndex:s]) {
+                NSValue *key = [NSValue valueWithNonretainedObject:roi];
+                if ([seen containsObject:key]) continue;
+                [seen addObject:key];
+                NSString *name = [roi name] ? [roi name] : @"Unnamed";
+                NSString *title = (movies > 1)
+                    ? [NSString stringWithFormat:@"%@ — slice %lu, frame %ld", name, (unsigned long)s + 1, m + 1]
+                    : [NSString stringWithFormat:@"%@ — slice %lu", name, (unsigned long)s + 1];
+                [_roiEntries addObject:@{@"roi": roi, @"slice": @(s), @"movie": @(m), @"title": title, @"name": name}];
+            }
+        }
+    }
+    for (NSDictionary *e in _roiEntries) {
+        [_referencePopup addItemWithTitle:[e objectForKey:@"title"]];
+        [_aifPopup addItemWithTitle:[e objectForKey:@"title"]];
+    }
+    if (previousRef && [_referencePopup itemWithTitle:previousRef]) [_referencePopup selectItemWithTitle:previousRef];
+    if (previousAIF && [_aifPopup itemWithTitle:previousAIF]) [_aifPopup selectItemWithTitle:previousAIF];
+    else {
+        for (NSDictionary *e in _roiEntries)
+            if ([[[e objectForKey:@"name"] lowercaseString] rangeOfString:@"aif"].location != NSNotFound ||
+                [[[e objectForKey:@"name"] lowercaseString] rangeOfString:@"arter"].location != NSNotFound) {
+                [_aifPopup selectItemWithTitle:[e objectForKey:@"title"]];
+                break;
+            }
+    }
+}
+
+- (NSDictionary *)entryForPopup:(NSPopUpButton *)popup
+{
+    NSInteger i = [popup indexOfSelectedItem];
+    if (i < 0 || i >= (NSInteger)[_roiEntries count]) return nil;
+    return [_roiEntries objectAtIndex:i];
+}
+
+// Statistics of the pixels of a ROI on the frame shown, -1 and non-finite values left out.
+- (NSMutableDictionary *)statisticsForEntry:(NSDictionary *)entry
+{
+    ROI *roi = [entry objectForKey:@"roi"];
+    NSUInteger slice = [[entry objectForKey:@"slice"] unsignedIntegerValue];
+    long movie = [_viewer maxMovieIndex] > 1 ? [_viewer curMovieIndex] : 0;
+    NSArray *pixList = [_viewer pixList:movie];
+    if (slice >= [pixList count]) return nil;
+    DCMPix *pix = [pixList objectAtIndex:slice];
+
+    long count = 0;
+    float *values = [pix getROIValue:&count :roi :NULL];
+    float *valid = (float *)malloc(sizeof(float) * (size_t)MAX(count, 1));
+    long n = 0;
+    for (long i = 0; i < count; i++)
+        if (isfinite(values[i]) && values[i] != UMMP_NOT_COMPUTED) valid[n++] = values[i];
+    if (values) free(values);
+
+    NSMutableDictionary *row = [NSMutableDictionary dictionary];
+    [row setObject:[entry objectForKey:@"name"] forKey:@"name"];
+    [row setObject:@(slice + 1) forKey:@"slice"];
+    [row setObject:@(n) forKey:@"valid"];
+    [row setObject:@(count - n) forKey:@"excluded"];
+    if (n > 0) {
+        double sum = 0, sum2 = 0;
+        for (long i = 0; i < n; i++) sum += valid[i];
+        double mean = sum / n;
+        for (long i = 0; i < n; i++) sum2 += (valid[i] - mean) * (valid[i] - mean);
+        qsort(valid, (size_t)n, sizeof(float), UMMPCompareFloats);
+        double median = (n % 2) ? valid[n / 2] : 0.5 * (valid[n / 2 - 1] + valid[n / 2]);
+        [row setObject:@(mean) forKey:@"mean"];
+        [row setObject:@(n > 1 ? sqrt(sum2 / (n - 1)) : 0.0) forKey:@"sd"];
+        [row setObject:@(median) forKey:@"median"];
+        [row setObject:@(valid[0]) forKey:@"min"];
+        [row setObject:@(valid[n - 1]) forKey:@"max"];
+    }
+    free(valid);
+    return row;
+}
+
+- (void)measure:(id)sender
+{
+    if (![self requireViewer]) return;
+    [self refreshROIsKeepingSelection];
+    [_rows removeAllObjects];
+    _referenceMean = NAN;
+    [_referenceTitle release]; _referenceTitle = nil;
+
+    NSDictionary *reference = [self entryForPopup:_referencePopup];
+    if (reference) {
+        NSDictionary *r = [self statisticsForEntry:reference];
+        if ([r objectForKey:@"mean"]) {
+            _referenceMean = [[r objectForKey:@"mean"] doubleValue];
+            _referenceTitle = [[reference objectForKey:@"title"] copy];
+        }
+    }
+    for (NSDictionary *e in _roiEntries) {
+        NSMutableDictionary *row = [self statisticsForEntry:e];
+        if (!row) continue;
+        if ([row objectForKey:@"mean"] && isfinite(_referenceMean) && _referenceMean != 0)
+            [row setObject:@([[row objectForKey:@"mean"] doubleValue] / _referenceMean) forKey:@"ratio"];
+        if (e == reference) [row setObject:@YES forKey:@"isReference"];
+        [_rows addObject:row];
+    }
+    [_table reloadData];
+}
+
+- (void)refreshROIsKeepingSelection
+{
+    [self refreshROIs:nil];
+}
+
+- (void)createNormalizedMap:(id)sender
+{
+    if (![self requireViewer]) return;
+    [self measure:nil];
+    if (!(isfinite(_referenceMean) && _referenceMean != 0)) {
+        NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+        [alert setMessageText:@"No usable reference"];
+        [alert setInformativeText:@"Draw a reference ROI (e.g. contralateral normal-appearing white matter) on the map, choose it as the reference, and try again. It must contain pixels that are not −1."];
+        [alert beginSheetModalForWindow:[self window] completionHandler:nil];
+        return;
+    }
+    if (!_filter) return;
+    ViewerController *source = _viewer;
+    ViewerController *normalized = [_filter duplicateViewer:source deleteROIs:NO];
+    if (!normalized) return;
+    for (DCMPix *pix in [normalized pixList]) {
+        float *image = [pix fImage];
+        long n = (long)[pix pwidth] * [pix pheight];
+        for (long i = 0; i < n; i++) {
+            if (!isfinite(image[i]) || image[i] == UMMP_NOT_COMPUTED) image[i] = UMMP_NOT_COMPUTED;
+            else image[i] = (float)(image[i] / _referenceMean);
+        }
+    }
+    NSString *sourceName = [[[source pixList] objectAtIndex:0] generatedName];
+    if (![sourceName length]) sourceName = [[source window] title];
+    NSString *name = [NSString stringWithFormat:@"%@ ÷ %@ (reference mean %.4g)", sourceName ? sourceName : @"Map",
+                      _referenceTitle, _referenceMean];
+    [[[normalized pixList] objectAtIndex:0] setGeneratedName:name];
+    [normalized needsDisplayUpdate];
+    [normalized setWL:1.0 WW:2.0];
+}
+
+- (void)exportCSV:(id)sender
+{
+    if (![_rows count]) [self measure:nil];
+    if (![_rows count]) { NSBeep(); return; }
+    NSSavePanel *panel = [NSSavePanel savePanel];
+    [panel setNameFieldStringValue:@"UMMPerfusion ROI statistics.csv"];
+    [panel beginSheetModalForWindow:[self window] completionHandler:^(NSModalResponse result) {
+        if (result != NSModalResponseOK) return;
+        NSMutableString *csv = [NSMutableString string];
+        NSString *viewerTitle = [[_viewerLabel stringValue] stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+        [csv appendFormat:@"# Viewer: \"%@\"\n", viewerTitle];
+        if (_referenceTitle) [csv appendFormat:@"# Reference: \"%@\", mean %.6g\n", _referenceTitle, _referenceMean];
+        [csv appendString:@"# Pixels equal to -1 (not computed) excluded\n"];
+        [csv appendString:@"roi,slice,valid_pixels,excluded_pixels,mean,sd,median,min,max,mean_over_reference,is_reference\n"];
+        for (NSDictionary *r in _rows) {
+            NSString *(^num)(NSString *) = ^NSString *(NSString *key) {
+                id v = [r objectForKey:key];
+                return v ? [NSString stringWithFormat:@"%.6g", [v doubleValue]] : @"";
+            };
+            [csv appendFormat:@"\"%@\",%@,%@,%@,%@,%@,%@,%@,%@,%@,%@\n",
+             [[r objectForKey:@"name"] stringByReplacingOccurrencesOfString:@"\"" withString:@"'"],
+             [r objectForKey:@"slice"], [r objectForKey:@"valid"], [r objectForKey:@"excluded"],
+             num(@"mean"), num(@"sd"), num(@"median"), num(@"min"), num(@"max"), num(@"ratio"),
+             [r objectForKey:@"isReference"] ? @"yes" : @""];
+        }
+        NSError *error = nil;
+        if (![csv writeToURL:[panel URL] atomically:YES encoding:NSUTF8StringEncoding error:&error])
+            [[NSAlert alertWithError:error] runModal];
+    }];
+}
+
+#pragma mark - Table
+
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
+{
+    return (NSInteger)[_rows count];
+}
+
+- (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)row
+{
+    NSDictionary *r = [_rows objectAtIndex:row];
+    NSString *key = [column identifier];
+    id v = [r objectForKey:key];
+    if ([key isEqualToString:@"name"])
+        return [r objectForKey:@"isReference"] ? [NSString stringWithFormat:@"%@ (ref)", v] : v;
+    if (!v) return @"–";
+    if ([key isEqualToString:@"slice"] || [key isEqualToString:@"valid"] || [key isEqualToString:@"excluded"]) return v;
+    return [NSString stringWithFormat:@"%.4g", [v doubleValue]];
+}
+
+#pragma mark - AIF
+
+- (int)baselineFramesForFrames:(int)frames
+{
+    int bl = [_baselineField intValue];
+    if (bl < 1) bl = 1;
+    if (bl > frames - 2) bl = frames - 2;
+    return bl;
+}
+
+- (BOOL)require4D
+{
+    if (![self requireViewer]) return NO;
+    if ([_viewer maxMovieIndex] < 4) {
+        [_aifResult setStringValue:@"This needs the 4D DSC series (several time frames) in the viewer, not a map."];
+        return NO;
+    }
+    return YES;
+}
+
+- (void)checkAIF:(id)sender
+{
+    if (![self require4D]) return;
+    [self refreshROIsKeepingSelection];
+    NSDictionary *entry = [self entryForPopup:_aifPopup];
+    if (!entry) { [_aifResult setStringValue:@"Draw an ROI in an artery first, then choose it above."]; return; }
+    ROI *roi = [entry objectForKey:@"roi"];
+    NSUInteger slice = [[entry objectForKey:@"slice"] unsignedIntegerValue];
+    int frames = [_viewer maxMovieIndex];
+    int bl = [self baselineFramesForFrames:frames];
+
+    double *meanCurve = (double *)calloc((size_t)frames, sizeof(double));
+    float **pixelValues = (float **)calloc((size_t)frames, sizeof(float *));
+    long pixels = -1;
+    BOOL consistent = YES;
+    for (int t = 0; t < frames; t++) {
+        DCMPix *pix = [[_viewer pixList:t] objectAtIndex:slice];
+        float mean = 0;
+        [pix computeROI:roi :&mean :NULL :NULL :NULL :NULL];
+        meanCurve[t] = mean;
+        long count = 0;
+        pixelValues[t] = [pix getROIValue:&count :roi :NULL];
+        if (pixels < 0) pixels = count;
+        else if (count != pixels) consistent = NO;
+    }
+
+    double s0 = 0;
+    for (int t = 0; t < bl; t++) s0 += meanCurve[t];
+    s0 /= bl;
+    double *c = (double *)calloc((size_t)frames, sizeof(double));
+    int peakFrame = bl;
+    for (int t = 0; t < frames; t++) {
+        c[t] = UMMPDSCConcentrationValue(meanCurve[t], s0, YES);
+        if (t >= bl && c[t] > c[peakFrame]) peakFrame = t;
+    }
+    double peak = c[peakFrame];
+    int arrival = -1;
+    for (int t = bl; t <= peakFrame; t++) if (c[t] > 0.1 * peak) { arrival = t; break; }
+    int left = peakFrame, right = peakFrame;
+    while (left > 0 && c[left - 1] >= 0.5 * peak) left--;
+    while (right < frames - 1 && c[right + 1] >= 0.5 * peak) right++;
+    int fwhm = right - left + 1;
+
+    long clipped = 0;
+    if (consistent && pixels > 0) {
+        for (long i = 0; i < pixels; i++) {
+            double b = 0;
+            for (int t = 0; t < bl; t++) b += pixelValues[t][i];
+            b /= bl;
+            if (!(b > 0) || pixelValues[peakFrame][i] / b < 0.05) clipped++;
+        }
+    }
+
+    NSMutableString *text = [NSMutableString string];
+    [text appendFormat:@"%@: %ld pixels, baseline signal %.4g.\n", [entry objectForKey:@"title"], pixels, s0];
+    [text appendFormat:@"Peak ΔR2*·TE %.2f (signal down to %.0f%% of baseline) at frame %d; arrival frame %d; width at half maximum %d frames.\n",
+     peak, 100.0 * exp(-peak), peakFrame + 1, arrival + 1, fwhm];
+    if (consistent && pixels > 0)
+        [text appendFormat:@"Pixels below 5%% of their baseline at the peak (saturated): %ld (%.0f%%).\n", clipped, 100.0 * clipped / pixels];
+
+    NSMutableArray *warnings = [NSMutableArray array];
+    if (pixels > 0 && consistent && clipped > 0.1 * pixels)
+        [warnings addObject:@"the signal saturates in many pixels at the bolus peak: the AIF peak is cut off and all maps are biased. Use a smaller artery, or voxels beside it."];
+    if (exp(-peak) > 0.7)
+        [warnings addObject:@"weak signal drop for an artery: the ROI may be mostly tissue (partial volume). Move it onto the vessel."];
+    if (arrival < 0 || arrival < bl)
+        [warnings addObject:@"the bolus arrives before the end of the baseline: reduce the baseline length."];
+    if (peakFrame >= frames - 2)
+        [warnings addObject:@"the peak is at the end of the series: the bolus may not be fully covered."];
+    if ([warnings count]) [text appendFormat:@"Warnings: %@", [warnings componentsJoinedByString:@" Also, "]];
+    else [text appendString:@"No problems found."];
+    [_aifResult setStringValue:text];
+
+    for (int t = 0; t < frames; t++) if (pixelValues[t]) free(pixelValues[t]);
+    free(pixelValues);
+    free(meanCurve);
+    free(c);
+}
+
+// Candidate arterial voxels on the current slice: strong, early and narrow first-pass peaks without
+// saturation. The best few are marked with a brush ROI "Auto AIF".
+- (void)findAIF:(id)sender
+{
+    if (![self require4D]) return;
+    int frames = [_viewer maxMovieIndex];
+    int bl = [self baselineFramesForFrames:frames];
+    short slice = [[_viewer imageView] curImage];
+    NSArray *firstFrame = [_viewer pixList:0];
+    if (slice < 0 || slice >= (short)[firstFrame count]) return;
+    DCMPix *pix0 = [firstFrame objectAtIndex:slice];
+    int width = [pix0 pwidth], height = [pix0 pheight];
+    long size = (long)width * height;
+
+    float **img = (float **)calloc((size_t)frames, sizeof(float *));
+    for (int t = 0; t < frames; t++) img[t] = [[[_viewer pixList:t] objectAtIndex:slice] fImage];
+
+    double *s0 = (double *)calloc((size_t)size, sizeof(double));
+    float *sorted = (float *)malloc(sizeof(float) * (size_t)size);
+    long npos = 0;
+    for (long i = 0; i < size; i++) {
+        for (int t = 0; t < bl; t++) s0[i] += img[t][i];
+        s0[i] /= bl;
+        if (s0[i] > 0) sorted[npos++] = (float)s0[i];
+    }
+    double threshold = 0;
+    if (npos) { qsort(sorted, (size_t)npos, sizeof(float), UMMPCompareFloats); threshold = 0.1 * sorted[(long)(0.99 * (npos - 1))]; }
+    free(sorted);
+
+    typedef struct { long index; double peak; int ttp; int fwhm; } Candidate;
+    Candidate *cand = (Candidate *)malloc(sizeof(Candidate) * (size_t)size);
+    long nc = 0;
+    double *c = (double *)malloc(sizeof(double) * (size_t)frames);
+    for (long i = 0; i < size; i++) {
+        if (!(s0[i] > threshold)) continue;
+        BOOL saturated = NO;
+        int peakFrame = bl;
+        for (int t = 0; t < frames; t++) {
+            double ratio = img[t][i] / s0[i];
+            if (!(ratio > 0.05)) { saturated = YES; break; }
+            c[t] = -log(ratio);
+            if (t >= bl && c[t] > c[peakFrame]) peakFrame = t;
+        }
+        if (saturated || peakFrame >= frames - 1) continue;
+        double peak = c[peakFrame];
+        if (!(peak > 0)) continue;
+        int left = peakFrame, right = peakFrame;
+        while (left > bl && c[left - 1] >= 0.5 * peak) left--;
+        while (right < frames - 1 && c[right + 1] >= 0.5 * peak) right++;
+        cand[nc].index = i; cand[nc].peak = peak; cand[nc].ttp = peakFrame; cand[nc].fwhm = right - left + 1;
+        nc++;
+    }
+    free(c);
+
+    NSString *result = nil;
+    if (nc < 20) {
+        result = @"Too few usable voxels on this slice. Go to a slice through the middle cerebral arteries (or the carotids) and try again.";
+    } else {
+        // strongest 5 % (at least 20), then the earlier half of those, ranked by peak / width
+        qsort_b(cand, (size_t)nc, sizeof(Candidate), ^int(const void *a, const void *b) {
+            double x = ((const Candidate *)a)->peak, y = ((const Candidate *)b)->peak;
+            return (x < y) - (x > y);
+        });
+        long top = MAX(20, nc / 20);
+        if (top > nc) top = nc;
+        int *ttps = (int *)malloc(sizeof(int) * (size_t)top);
+        for (long k = 0; k < top; k++) ttps[k] = cand[k].ttp;
+        qsort_b(ttps, (size_t)top, sizeof(int), ^int(const void *a, const void *b) {
+            return *(const int *)a - *(const int *)b;
+        });
+        int medianTTP = ttps[top / 2];
+        free(ttps);
+        long early = 0;
+        for (long k = 0; k < top; k++) if (cand[k].ttp <= medianTTP) cand[early++] = cand[k];
+        qsort_b(cand, (size_t)early, sizeof(Candidate), ^int(const void *a, const void *b) {
+            const Candidate *x = a, *y = b;
+            double sx = x->peak / x->fwhm, sy = y->peak / y->fwhm;
+            return (sx < sy) - (sx > sy);
+        });
+        long chosen = MIN(8, early);
+        unsigned char *mask = (unsigned char *)calloc((size_t)size, 1);
+        double meanPeak = 0, meanTTP = 0;
+        for (long k = 0; k < chosen; k++) {
+            mask[cand[k].index] = 255;
+            meanPeak += cand[k].peak;
+            meanTTP += cand[k].ttp + 1;
+        }
+        meanPeak /= chosen; meanTTP /= chosen;
+
+        ROI *roi = [[[ROI alloc] initWithTexture:mask textWidth:width textHeight:height textName:@"Auto AIF"
+                                       positionX:0 positionY:0
+                                        spacingX:[pix0 pixelSpacingX] spacingY:[pix0 pixelSpacingY]
+                                     imageOrigin:NSMakePoint([pix0 originX], [pix0 originY])] autorelease];
+        free(mask);
+        RGBColor red = {65535, 0, 0};
+        [roi setColor:red];
+        short movie = [_viewer curMovieIndex];
+        [roi setPix:[[_viewer pixList:movie] objectAtIndex:slice]];
+        [roi setCurView:[_viewer imageView]];
+        [[[_viewer roiList:movie] objectAtIndex:slice] addObject:roi];
+        [_viewer needsDisplayUpdate];
+        [[NSNotificationCenter defaultCenter] postNotificationName:OsirixROIChangeNotification object:roi userInfo:nil];
+        [self refreshROIs:nil];
+        for (NSDictionary *e in _roiEntries)
+            if ([e objectForKey:@"roi"] == roi) { [_aifPopup selectItemWithTitle:[e objectForKey:@"title"]]; break; }
+
+        result = [NSString stringWithFormat:@"Marked %ld voxels as ROI “Auto AIF” on slice %d (out of %ld usable): mean peak ΔR2*·TE %.2f, mean peak frame %.1f. Check that they lie in or beside a large artery, then choose “Auto AIF” as the arterial ROI in the UMMPerfusion panel.",
+                  chosen, slice + 1, nc, meanPeak, meanTTP];
+    }
+    free(cand);
+    free(s0);
+    free(img);
+    [_aifResult setStringValue:result];
+}
+
+@end
