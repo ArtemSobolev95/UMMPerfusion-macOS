@@ -22,6 +22,17 @@
 #import <OsiriXAPI/browserController.h>
 #import <OsiriXAPI/DICOMExport.h>
 #import <OsiriXAPI/Wait.h>
+#import <OsiriXAPI/DicomDatabase.h>
+
+// IsiX/Horos port: export progress in the system log (Console.app, filter "UMMP export")
+static void UMMPTrace(NSString *format, ...) NS_FORMAT_FUNCTION(1,2);
+static void UMMPTrace(NSString *format, ...)
+{
+    va_list args; va_start(args, format);
+    NSString *msg = [[[NSString alloc] initWithFormat:format arguments:args] autorelease];
+    va_end(args);
+    NSLog(@"UMMP export: %@", msg);
+}
 #import "DCMCalendarDate.h"
 #import "DCMObject.h"
 
@@ -569,6 +580,7 @@
 	int viewersCount = [viewerList count];
     
 	// Export all open UMMPViewers
+	UMMPTrace(@"exportResults: %d viewers, report %@", viewersCount, report ? @"yes" : @"no");
 	if ([viewerList count]) {
 		
 		Wait *splash = [[Wait alloc] initWithString:NSLocalizedString(@"Saving results...", nil)];
@@ -577,16 +589,18 @@
 		[splash setCancel: YES];
 		[splash incrementBy: 1];
 		
+		BOOL ummpAborted = NO;
 		for (i = 0; i < viewersCount; i++) {
+			UMMPTrace(@"viewer %u of %d: start", i + 1, viewersCount);
 			[self exportViewer:[viewerList objectAtIndex:i]];
+			UMMPTrace(@"viewer %u: done", i + 1);
 			
 			[splash incrementBy: 1];
-			if( [splash aborted])
-				i = viewersCount;
+			if( [splash aborted]) { ummpAborted = YES; UMMPTrace(@"aborted by user"); break; }
 		}
         
         // Export UMMPReport
-        if (report) {
+        if (report && !ummpAborted) {
             
             // Add custom string in front of exportName
             NSString *name = nil;
@@ -610,14 +624,18 @@
             
             NSString *fileDirectory = [[[BrowserController currentBrowser] fixedDocumentsDirectory] stringByAppendingPathComponent: [NSString stringWithFormat:@"INCOMING.noindex/%@.dcm", exportName]];
                         
+            UMMPTrace(@"report: writing %@", fileDirectory);
             [self exportReport:report andSeriesDiscription:exportName seriesNumber:seriesNumber backgroundColor:[NSColor whiteColor] toFile:fileDirectory];
+            UMMPTrace(@"report: done");
             // IsiX/Horos port: was [report dealloc], which freed the report while AppKit still held
             // references to it -> crash when the autorelease pool drained (Export and Autosave).
             [report release]; report = nil;
         }
         
+        UMMPTrace(@"closing progress window");
         [splash close];
 		[splash release];
+        UMMPTrace(@"exportResults: finished");
         
 	} else {
 		NSRunAlertPanel(@"Data error", @"No results to export.", @"OK", nil, nil);
@@ -628,7 +646,7 @@
 {
 	int x, y;
 	
-	id waitWindow = [[controller viewerController] startWaitWindow:@"Saving..."];
+	UMMPTrace(@"exportReport: rendering");
 	
 	NSBitmapImageRep* bitmapImageRep = [exReport bitmapImageRepForCachingDisplayInRect:[exReport bounds]];
 	[exReport cacheDisplayInRect:[exReport bounds] toBitmapImageRep:bitmapImageRep];
@@ -672,7 +690,7 @@
 		[dicomExport release];
 	}
 	
-	[[controller viewerController] endWaitWindow:waitWindow];
+	UMMPTrace(@"exportReport: written");
 }
 
 - (void)exportViewer:(UMMPViewer *)viewer
@@ -707,8 +725,10 @@
 		
 		// export now uses data in memory -->fusion is not supported in export!
 		NSDictionary *s = [self exportDICOMFileInt:0 withName:exportName viewer:vc];
-        if (s)
+        if (s && [s objectForKey:@"file"])
             [producedFiles addObject: s];
+        if (i == 0 || i + 1 == (int)[[vc pixList] count])
+            UMMPTrace(@"  slice %d of %lu written: %@", i + 1, (unsigned long)[[vc pixList] count], [s objectForKey:@"file"]);
         
         [pool release];
 	}
@@ -719,25 +739,21 @@
 	[[vc imageView] sendSyncMessage:0];
 	[vc adjustSlider];
 	
-	[NSThread sleepForTimeInterval: 1.0];
-    
+    // IsiX/Horos port: add the files with the current database API (the deprecated
+    // +[BrowserController addFiles:...] and -checkIncoming: are not used any more).
     if( [producedFiles count])
 	{
-		NSArray *objects = [BrowserController addFiles: [producedFiles valueForKey: @"file"]
-											 toContext: [[BrowserController currentBrowser] managedObjectContext]
-											toDatabase: [BrowserController currentBrowser]
-											 onlyDICOM: YES 
-									  notifyAddedFiles: YES
-								   parseExistingObject: YES
-											  dbFolder: [[BrowserController currentBrowser] documentsDirectory]
-									 generatedByOsiriX: YES];
+		UMMPTrace(@"  adding %lu files to the database", (unsigned long)[producedFiles count]);
+		NSArray *objects = [[DicomDatabase activeLocalDatabase] addFilesAtPaths: [producedFiles valueForKey: @"file"]
+		                                                      postNotifications: YES
+		                                                              dicomOnly: YES
+		                                                    rereadExistingItems: YES
+		                                                      generatedByOsiriX: YES];
+		UMMPTrace(@"  added: %lu objects", (unsigned long)[objects count]);
 		
 		if( [[NSUserDefaults standardUserDefaults] boolForKey: @"afterExportSendToDICOMNode"])
 			[[BrowserController currentBrowser] selectServer: objects];
 	}
-    
-	[[BrowserController currentBrowser] checkIncoming: self];
-	
 }
 
 - (NSDictionary*) exportDICOMFileInt:(int)screenCapture withName:(NSString*)name viewer:(ViewerController *)new2DViewer

@@ -111,6 +111,18 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   not run since the port (see TESTING.md).
 - Code clean-up of the original (dead shuttle-mode and 32-bit code, manual memory management).
 
+## 1.5.3.2-port.4
+
+- **Export / Autosave in IsiX** no longer hangs (endless "Saving results…", crash after Abort).
+  Exported maps are added with the current database call (`-[DicomDatabase addFilesAtPaths:…]`)
+  instead of the deprecated `+[BrowserController addFiles:…]` and `-checkIncoming:`, and the
+  second, nested "Saving…" window is gone. Abort now stops the export cleanly (the report is
+  not written after an abort). Progress is logged to Console.app ("UMMP export").
+- **Much faster start**: opening the plugin on a 60 × 30 DSC series went from several seconds
+  to 0.2 s. The acquisition time of every image is now read with a small header reader that
+  stops at the needed tag (`UMMPFastDicom.h`), in parallel, instead of a full DCMObject parse of
+  every file; unusual files still fall back to DCMObject. Results are identical.
+
 ## 1.5.3.2-port.3
 
 - Fixed: **Export** and **Autosave Result** crashed IsiX and Horos. After exporting, the report

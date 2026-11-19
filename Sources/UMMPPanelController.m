@@ -20,6 +20,7 @@
 #import "DCMCalendarDate.h"
 #import "DCMSequenceAttribute.h"
 #import "DCMAttributeTag.h"
+#import "UMMPFastDicom.h"
 
 @implementation UMMPPanelController
 
@@ -839,34 +840,34 @@ BOOL pluginClose = true;
 }
 
 
-- (NSString *)getStringValueForDicomTag:(NSString *)dicomTag atTimePoint:(int)timePoint
+// IsiX/Horos port: tag value from one file — fast header reader first (UMMPFastDicom.h),
+// the full DCMObject parser only if the fast reader cannot handle the file.
+- (NSString *)ummpValueForDicomTag:(NSString *)dicomTag inFile:(NSString *)filePath
 {
-    NSString *filePath= [[[viewerController pixList:timePoint] objectAtIndex:0] sourceFile];
+    uint16_t group, element;
+    if (UMMPParseTagString(dicomTag, &group, &element)) {
+        BOOL ok = NO;
+        NSString *value = UMMPFastDicomString(filePath, group, element, &ok);
+        if (ok) return value;
+    }
     DCMObject *dcmObject = [DCMObject objectWithContentsOfFile:filePath decodingPixelData:NO];
-    
     DCMAttributeTag *dcmAttributeTag = [DCMAttributeTag tagWithTagString:dicomTag];
     if (dcmAttributeTag && dcmAttributeTag.group && dcmAttributeTag.element)
     {
         DCMAttribute *dcmAttribute = [dcmObject attributeForTag:dcmAttributeTag];
         return [[dcmAttribute value] description];
     }
-    
     return nil;
+}
+
+- (NSString *)getStringValueForDicomTag:(NSString *)dicomTag atTimePoint:(int)timePoint
+{
+    return [self ummpValueForDicomTag:dicomTag inFile:[[[viewerController pixList:timePoint] objectAtIndex:0] sourceFile]];
 }
 
 - (NSString *)getStringValueForDicomTag:(NSString *)dicomTag atTimePoint:(int)timePoint atSlice:(int)slice
 {
-    NSString *filePath= [[[viewerController pixList:timePoint] objectAtIndex:slice] sourceFile];
-    DCMObject *dcmObject = [DCMObject objectWithContentsOfFile:filePath decodingPixelData:NO];
-    
-    DCMAttributeTag *dcmAttributeTag = [DCMAttributeTag tagWithTagString:dicomTag];
-    if (dcmAttributeTag && dcmAttributeTag.group && dcmAttributeTag.element)
-    {
-        DCMAttribute *dcmAttribute = [dcmObject attributeForTag:dcmAttributeTag];
-        return [[dcmAttribute value] description];
-    }
-    
-    return nil;
+    return [self ummpValueForDicomTag:dicomTag inFile:[[[viewerController pixList:timePoint] objectAtIndex:slice] sourceFile]];
 }
 
 - (BOOL)calculateTime
@@ -1269,16 +1270,38 @@ static double UMMPElapsedSeconds(double a, double b)
     NSLog(@"UMMP: time points = %d, slices = %d", n+1, slices);
     if (n < 1 || slices < 1) return;
     
-    // Acquisition time of every image, in seconds
-    double *seconds = (double *)calloc((size_t)(n+1) * (size_t)slices, sizeof(double));
-    for (i = 0; i <= n; i++) {
+    // Acquisition time of every image, in seconds.
+    // IsiX/Horos port: the files are read in parallel with the fast header reader; only files it
+    // cannot handle go through DCMObject (serially, afterwards).
+    NSDate *ummpStart = [NSDate date];
+    long total = (long)(n+1) * slices;
+    double *seconds = (double *)calloc((size_t)total, sizeof(double));
+    char *needsFallback = (char *)calloc((size_t)total, 1);
+    NSMutableArray *paths = [NSMutableArray arrayWithCapacity:total];
+    for (i = 0; i <= n; i++)
         for (k = 0; k < slices; k++) {
-            NSString *value = [self getStringValueForDicomTag:acquisitionTimeTag atTimePoint:i atSlice:k];
-            double t = UMMPSecondsFromDicomTime(value);
-            if (isnan(t)) missing++;
-            seconds[i*slices + k] = t;
+            NSString *path = [[[viewerController pixList:i] objectAtIndex:k] sourceFile];
+            [paths addObject:path ? path : @""];
         }
+    dispatch_apply((size_t)total, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t idx) {
+        NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+        BOOL ok = NO;
+        NSString *value = UMMPFastDicomString([paths objectAtIndex:idx], 0x0008, 0x0032, &ok);
+        if (ok) seconds[idx] = UMMPSecondsFromDicomTime(value);
+        else needsFallback[idx] = 1;
+        [pool release];
+    });
+    int fallbacks = 0;
+    for (long idx = 0; idx < total; idx++) {
+        if (needsFallback[idx]) {
+            fallbacks++;
+            seconds[idx] = UMMPSecondsFromDicomTime([self getStringValueForDicomTag:acquisitionTimeTag atTimePoint:(int)(idx / slices) atSlice:(int)(idx % slices)]);
+        }
+        if (isnan(seconds[idx])) missing++;
     }
+    free(needsFallback);
+    NSLog(@"UMMP: acquisition times of %ld images read in %.2f s (%d through DCMObject)", total, -[ummpStart timeIntervalSinceNow], fallbacks);
+
     if (missing) NSLog(@"UMMP: %d images have no usable Acquisition Time (0008,0032)", missing);
     
     [timeArray release];
