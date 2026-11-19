@@ -10,12 +10,12 @@ Apple silicon and Intel. It is a port of
 
 ## Download
 
-Current version: **1.5.3.2-port.5**. Click the package for your viewer:
+Current version: **1.5.3.2-port.6**. Click the package for your viewer:
 
 | Viewer | Download | macOS | Mac |
 |---|---|---|---|
-| IsiX DICOM Viewer 6.0.3+ (GitHub build) | [**UMMPerfusion-IsiX-1.5.3.2-port.5.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-IsiX-1.5.3.2-port.5.zip) | 15 or later | Apple silicon and Intel |
-| Horos 4.0.1 | [**UMMPerfusion-Horos-1.5.3.2-port.5.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-Horos-1.5.3.2-port.5.zip) | 11 or later | Apple silicon and Intel |
+| IsiX DICOM Viewer 6.0.3+ (GitHub build) | [**UMMPerfusion-IsiX-1.5.3.2-port.6.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-IsiX-1.5.3.2-port.6.zip) | 15 or later | Apple silicon and Intel |
+| Horos 4.0.1 | [**UMMPerfusion-Horos-1.5.3.2-port.6.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-Horos-1.5.3.2-port.6.zip) | 11 or later | Apple silicon and Intel |
 
 Each package works on both kinds of Mac. The App Store version of IsiX loads no plugins; use the
 [GitHub build of IsiX](https://github.com/ThalesMMS/IsiX-DICOM-Viewer-macOS/releases).
@@ -33,6 +33,9 @@ All files are also in the [`downloads/`](downloads) folder.
 
 The plugin appears under the image filters menu as **UMMPerfusion**, **UMMPerfusion DSC Tools**
 and **UMMPerfusion Time Curves**. The README in the package has a quick start.
+
+Toolbar buttons: right-click the viewer toolbar › *Customize Toolbar…* and drag **UMMPerfusion**,
+**UMMPerfusion DSC Tools** and **UMMPerfusion Time Curves** onto it.
 
 ## What it does
 

@@ -17,11 +17,11 @@
 	<key>CFBundlePackageType</key>
 	<string>BNDL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.5.3.2-port.5</string>
+	<string>1.5.3.2-port.6</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>1.5.3.2.5</string>
+	<string>1.5.3.2.6</string>
 	<key>MenuTitles</key>
 	<array>
 		<string>UMMPerfusion</string>
@@ -32,5 +32,9 @@
 	<string>UMMPerfusionFilter</string>
 	<key>pluginType</key>
 	<string>imageFilter</string>
+	<key>allowToolbarIcon</key>
+	<string>YES</string>
+	<key>ToolbarIcon</key>
+	<string>UMMP-icon.png</string>
 </dict>
 </plist>

@@ -154,6 +154,7 @@ cp Sources/Info.plist "$BUNDLE/Contents/Info.plist"
 cp Sources/English.lproj/InfoPlist.strings "$BUNDLE/Contents/Resources/English.lproj/"
 # (the OsiriX-era images are no longer shipped: the toolbar uses system symbols, the logo page is gone)
 [ -f Sources/version.plist ] && cp Sources/version.plist "$BUNDLE/Contents/"
+cp Sources/UMMP-icon.png Sources/UMMP-DSC-icon.png Sources/UMMP-Curves-icon.png "$BUNDLE/Contents/Resources/"
 
 echo "==> Signing (ad hoc)"
 codesign --force --sign - --timestamp=none "$BUNDLE" >>"$LOG" 2>&1 || die "codesign failed (log: $LOG)"

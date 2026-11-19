@@ -65,6 +65,29 @@
 	return 0;
 }
 
+// IsiX/Horos port: toolbar buttons. Info.plist (allowToolbarIcon) makes the host offer one toolbar
+// item per menu title, all with the same icon (UMMP-icon.png). Here the two secondary items get
+// their own icons; the host still runs them through -[ViewerController executeFilterFromToolbar:].
+- (NSToolbarItem*) toolbarItemForItemIdentifier:(NSString*) identifier forViewer:(id) controller
+{
+    NSString *iconName = nil;
+    if ([identifier isEqualToString:@"UMMPerfusion DSC Tools"]) iconName = @"UMMP-DSC-icon";
+    else if ([identifier isEqualToString:@"UMMPerfusion Time Curves"]) iconName = @"UMMP-Curves-icon";
+    if (!iconName || !controller || ![controller respondsToSelector:@selector(executeFilterFromToolbar:)])
+        return nil;
+    NSString *path = [[NSBundle bundleForClass:[self class]] pathForImageResource:iconName];
+    NSImage *image = path ? [[[NSImage alloc] initWithContentsOfFile:path] autorelease] : nil;
+    if (!image) return nil;
+    NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:identifier] autorelease];
+    [item setLabel:identifier];
+    [item setPaletteLabel:identifier];
+    [item setToolTip:identifier];
+    [item setImage:image];
+    [item setTarget:controller];
+    [item setAction:@selector(executeFilterFromToolbar:)];
+    return item;
+}
+
 /* Method by Andreas Klein @ Aycan 2011-08-02 */
 - (ViewerController*) duplicateViewer:(ViewerController *)vc deleteROIs:(BOOL)deleteROIs
 {

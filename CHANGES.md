@@ -111,6 +111,11 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   not run since the port (see TESTING.md).
 - Code clean-up of the original (dead shuttle-mode and 32-bit code, manual memory management).
 
+## 1.5.3.2-port.6
+
+- Toolbar buttons: UMMPerfusion, UMMPerfusion DSC Tools and UMMPerfusion Time Curves can be added
+  to the viewer toolbar (right-click the toolbar › Customize Toolbar…), each with its own icon.
+
 ## 1.5.3.2-port.5
 
 - Fixed: "Unsupported Mac OS – This Plugin requires at least Mac OS 10.8.4" on current macOS when
