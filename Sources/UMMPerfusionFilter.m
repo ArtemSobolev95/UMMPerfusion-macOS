@@ -47,22 +47,10 @@
     // initializing user defaults in extra plist
 	UMMPUserDefaults *userDefaults = [[UMMPUserDefaults alloc] init];
     
-    // method to get the actual OS X Version
-    NSString *version = [[NSProcessInfo processInfo] operatingSystemVersionString];
-    
-    // at least required OS X version
-    NSString *requiredVersion = @"10.8.4";
-    
-    // get the version number of the OS X Version String and convert it to a string
-    NSRange range = NSMakeRange(8, 6);
-    NSString *actualVersion = [version substringWithRange: range];
-    
-	// supported OS X version -> 10.8.4 or higher
-	if ([requiredVersion compare:actualVersion options:NSNumericSearch] == NSOrderedDescending) {
-        NSRunAlertPanel(@"Unsupported Mac OS", @"This Plugin requires at least Mac OS 10.8.4", @"OK",nil,nil);
-        [userDefaults release]; userDefaults=NULL;
-        return 0;
-    }
+    // IsiX/Horos port: the original compared a substring of -operatingSystemVersionString with
+    // 10.8.4. That string is localised, so on a Mac in another language (e.g. Russian) it read
+    // "5.8.3" and refused to run. The plugin binary itself requires macOS 11 (Horos build) or
+    // 15 (IsiX build), so no check is needed here.
 	
 	// supported OsiriX versions -> 5.6
 	if (0) // IsiX port: popup removed (it compared the host with OsiriX 5.9)

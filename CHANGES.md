@@ -111,6 +111,12 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   not run since the port (see TESTING.md).
 - Code clean-up of the original (dead shuttle-mode and 32-bit code, manual memory management).
 
+## 1.5.3.2-port.5
+
+- Fixed: "Unsupported Mac OS – This Plugin requires at least Mac OS 10.8.4" on current macOS when
+  the Mac is set to a language other than English. The original check cut the version number out
+  of a localised text; it is removed (the plugin cannot load on an unsupported macOS anyway).
+
 ## 1.5.3.2-port.4
 
 - **Export / Autosave in IsiX** no longer hangs (endless "Saving results…", crash after Abort).
