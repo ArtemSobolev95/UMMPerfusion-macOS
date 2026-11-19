@@ -111,6 +111,13 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   not run since the port (see TESTING.md).
 - Code clean-up of the original (dead shuttle-mode and 32-bit code, manual memory management).
 
+## 1.5.3.2-port.3
+
+- Fixed: **Export** and **Autosave Result** crashed IsiX and Horos. After exporting, the report
+  view was destroyed with `dealloc` while AppKit still referenced it; it is now released
+  normally. Two similar `dealloc` calls (ROI-based controllers) and a double release when the
+  panel closes were fixed as well; the report chart no longer leaks.
+
 ## 1.5.3.2-port.2
 
 First public release (IsiX and Horos).

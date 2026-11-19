@@ -19,7 +19,7 @@
 
 - (void)dealloc
 {
-	[dict dealloc]; dict = NULL;
+	[dict release]; dict = NULL;   // IsiX/Horos port: was [dict dealloc]
 	[super dealloc];
 }
 

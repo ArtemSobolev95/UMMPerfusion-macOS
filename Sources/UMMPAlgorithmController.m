@@ -99,9 +99,12 @@
 
 - (void)dealloc
 {
-    [inputParameter release];  self.inputParameter = nil;
-	[outputParameter release]; self.outputParameter = nil;
-	[presetParameter release]; self.presetParameter = nil;
+    // IsiX/Horos port: the original released these and then set the (copy) properties to nil,
+    // which released them a second time.
+    self.inputParameter = nil;
+	self.outputParameter = nil;
+	self.presetParameter = nil;
+	[report release]; report = nil;
 
 	[[NSNotificationCenter defaultCenter] removeObserver:self];
     [super dealloc];
@@ -534,7 +537,8 @@
     [[NSUserDefaults standardUserDefaults] setBool: NO forKey: @"ROITEXTIFSELECTED"];
     [DCMView setDefaults];
         
-    // Create UMMPReport
+    // Create UMMPReport (IsiX/Horos port: release the one from a previous run)
+    [report release]; report = nil;
     NSRect reportRect = NSMakeRect(0, 0, 1024, 1024);
 	
 	NSLog(@"%@", [[controller algorithmPopUpButton] titleOfSelectedItem]);
@@ -552,6 +556,7 @@
 	}	
         
     [imageView release];
+    [reportChart1 release];   // IsiX/Horos port: the report retains it (was leaked)
 }
 #pragma mark -
 #pragma mark calculations
@@ -606,8 +611,9 @@
             NSString *fileDirectory = [[[BrowserController currentBrowser] fixedDocumentsDirectory] stringByAppendingPathComponent: [NSString stringWithFormat:@"INCOMING.noindex/%@.dcm", exportName]];
                         
             [self exportReport:report andSeriesDiscription:exportName seriesNumber:seriesNumber backgroundColor:[NSColor whiteColor] toFile:fileDirectory];
-            [report dealloc];
-            //[report release]; report = NULL;
+            // IsiX/Horos port: was [report dealloc], which freed the report while AppKit still held
+            // references to it -> crash when the autorelease pool drained (Export and Autosave).
+            [report release]; report = nil;
         }
         
         [splash close];
