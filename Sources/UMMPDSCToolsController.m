@@ -515,6 +515,61 @@ static NSString *UMMPGeometryMismatch(ViewerController *a, ViewerController *b)
     return nil;
 }
 
+
+// YES when the middle slice of the viewer still holds the ΔT1 values.
+static BOOL UMMPDeltaT1Intact(ViewerController *out, NSData *data)
+{
+    NSArray *pl = [out pixList];
+    if (![pl count]) return NO;
+    NSUInteger m = [pl count] / 2;
+    long off = 0;
+    for (NSUInteger s = 0; s < m; s++) off += (long)[[pl objectAtIndex:s] pwidth] * [[pl objectAtIndex:s] pheight];
+    DCMPix *mid = [pl objectAtIndex:m];
+    long size = (long)[mid pwidth] * [mid pheight];
+    const float *d = (const float *)[data bytes];
+    float *img = [mid fImage];
+    if (!img || (off + size) * (long)sizeof(float) > (long)[data length]) return NO;
+    long differ = 0;
+    for (long i = 0; i < size; i++) if (fabsf(img[i] - d[off + i]) > 1e-4f) differ++;
+    return differ == 0;
+}
+
+// A new 2D viewer with the geometry of `source` and the pixels of `volume` (count floats,
+// malloc'ed; the viewer's volume data takes ownership). nil and *error on failure.
+static ViewerController *UMMPNewViewerFromVolume(ViewerController *source, float *volume, long count, NSString **error)
+{
+    NSArray *srcPix = [source pixList];
+    NSArray *srcFiles = [source fileList];
+    long total = 0;
+    for (DCMPix *p in srcPix) total += (long)[p pwidth] * [p pheight];
+    if (![srcPix count] || total != count) {
+        if (error) *error = @"The source series has changed (slice count or matrix).";
+        free(volume);
+        return nil;
+    }
+    NSMutableArray *pixList = [NSMutableArray arrayWithCapacity:[srcPix count]];
+    NSMutableArray *fileList = [NSMutableArray arrayWithCapacity:[srcPix count]];
+    long offset = 0;
+    for (NSUInteger i = 0; i < [srcPix count]; i++) {
+        DCMPix *p = [srcPix objectAtIndex:i];
+        DCMPix *c = [[p copy] autorelease];
+        [c setfImage:volume + offset];
+        offset += (long)[p pwidth] * [p pheight];
+        [pixList addObject:c];
+        id file = (i < [srcFiles count]) ? [srcFiles objectAtIndex:i] : [srcFiles lastObject];
+        if (file) [fileList addObject:file];
+    }
+    if ([fileList count] != [pixList count]) {
+        if (error) *error = @"The source series has no file list.";
+        free(volume);
+        return nil;
+    }
+    NSData *data = [[[NSData alloc] initWithBytesNoCopy:volume length:sizeof(float) * (size_t)count freeWhenDone:YES] autorelease];
+    ViewerController *v = [ViewerController newWindow:pixList :fileList :data];
+    if (!v && error) *error = @"IsiX did not open a new viewer.";
+    return v;
+}
+
 static float *UMMPVolumeCopy(ViewerController *v, long *count)
 {
     long total = 0;
@@ -563,45 +618,33 @@ static float *UMMPVolumeCopy(ViewerController *v, long *count)
         [self showMessage:@"No ΔT1 map" text:@"The pre series has too few pixels above the head-mask threshold, or no signal."];
         return;
     }
-    ViewerController *out = [_filter duplicateViewer:pre deleteROIs:YES];
-    if (!out) { free(d); return; }
-    [out checkEverythingLoaded];
-    long offset = 0, written = 0;
-    double sumD = 0;
-    for (long i = 0; i < n; i++) sumD += d[i];
-    for (DCMPix *pix in [out pixList]) {
-        long size = (long)[pix pwidth] * [pix pheight];
-        float *img = [pix fImage];
-        if (img) { memcpy(img, d + offset, sizeof(float) * (size_t)size); written++; }
-        offset += size;
+    // A new viewer built from copies of the pre series' slices, each pointing into our own ΔT1
+    // volume (the OsiriX way of creating a result series). duplicateViewer: is not used: IsiX
+    // fills a duplicated viewer asynchronously with the source pixels, which replaced the ΔT1 values.
+    NSData *dt1Data = [NSData dataWithBytes:d length:sizeof(float) * (size_t)n];
+    NSString *buildError = nil;
+    ViewerController *out = UMMPNewViewerFromVolume(pre, d, n, &buildError);
+    if (!out) {   // d was freed by UMMPNewViewerFromVolume
+        [self showMessage:@"No ΔT1 viewer" text:buildError ?: @"IsiX did not open a new viewer."];
+        return;
     }
-    {   // check that the viewer really holds the ΔT1 values (diagnostics in Console, filter "UMMP")
-        NSArray *pl = [out pixList];
-        DCMPix *mid = [pl objectAtIndex:[pl count] / 2];
-        long size = (long)[mid pwidth] * [mid pheight], off = 0;
-        for (NSUInteger s = 0; s < [pl count] / 2; s++) off += (long)[[pl objectAtIndex:s] pwidth] * [[pl objectAtIndex:s] pheight];
-        double sumView = 0, sumCalc = 0;
-        float *img = [mid fImage];
-        for (long i = 0; img && i < size; i++) { sumView += img[i]; sumCalc += d[off + i]; }
-        NSLog(@"UMMP ΔT1: %ld of %lu slices written; mean ΔT1 %.4g; middle slice: viewer sum %.6g, computed sum %.6g; pre loaded %d, post loaded %d, new viewer loaded %d",
-              written, (unsigned long)[pl count], n ? sumD / n : 0.0, sumView, sumCalc,
-              (int)[pre isEverythingLoaded], (int)[post isEverythingLoaded], (int)[out isEverythingLoaded]);
-    }
+    NSString *check = UMMPDeltaT1Intact(out, dt1Data) ? @"viewer holds ΔT1" : @"viewer does NOT hold ΔT1";
     NSString *name = @"ΔT1 (post ÷ median − pre ÷ median)";
-    [[[out pixList] objectAtIndex:0] setGeneratedName:name];
+    if ([[out pixList] count]) [[[out pixList] objectAtIndex:0] setGeneratedName:name];
 
     NSString *maskText = @"";
     double threshold = [_dt1ThresholdField doubleValue];
     if ([_dt1MaskBox state] == NSControlStateValueOn && threshold > 0) {
         long marked = 0; double volume = 0;
         NSString *roiName = [NSString stringWithFormat:@"Enhancing (ΔT1 > %g)", threshold];
-        offset = 0;
+        long offset = 0;
+        const float *dv = (const float *)[dt1Data bytes];
         NSArray *pixList = [out pixList];
         for (NSUInteger s = 0; s < [pixList count]; s++) {
             DCMPix *pix = [pixList objectAtIndex:s];
             long w = [pix pwidth], h = [pix pheight], size = w * h, here = 0;
             unsigned char *mask = (unsigned char *)calloc((size_t)size, 1);
-            for (long i = 0; i < size; i++) if (d[offset + i] > threshold) { mask[i] = 255; here++; }
+            for (long i = 0; i < size; i++) if (dv[offset + i] > threshold) { mask[i] = 255; here++; }
             offset += size;
             if (here) {
                 ROI *roi = [[[ROI alloc] initWithTexture:mask textWidth:(int)w textHeight:(int)h textName:roiName
@@ -612,7 +655,8 @@ static float *UMMPVolumeCopy(ViewerController *v, long *count)
                 [roi setColor:orange];
                 [roi setPix:pix];
                 [roi setCurView:[out imageView]];
-                [[[out roiList:0] objectAtIndex:s] addObject:roi];
+                NSArray *rois = [out roiList:0];
+                if (s < [rois count]) [[rois objectAtIndex:s] addObject:roi];
                 marked += here;
                 double thick = [pix sliceInterval] > 0 ? [pix sliceInterval] : [pix sliceThickness];
                 volume += here * [pix pixelSpacingX] * [pix pixelSpacingY] * thick / 1000.0;
@@ -623,16 +667,25 @@ static float *UMMPVolumeCopy(ViewerController *v, long *count)
             ? [NSString stringWithFormat:@" ROI “%@”: %ld pixels, %.2f ml (raw threshold: includes vessels, choroid plexus and motion rims — edit the ROI).", roiName, marked, volume]
             : [NSString stringWithFormat:@" No pixel above %g.", threshold];
     }
-    free(d);
+    // d is owned by the viewer's volume now (freed with it).
     // Redraw from the new values: the copied slices keep the 8-bit display image of the T1 series.
     for (DCMPix *pix in [out pixList]) [pix changeWLWW:0.25 :1.0];
     [out setWL:0.25 WW:1.0];
     [out refresh];
     [out needsDisplayUpdate];
+    NSString *summary = [NSString stringWithFormat:@"ΔT1 map created: medians pre %.4g, post %.4g; head mask %ld pixels (pre > %.4g).%@",
+                         r.medianPre, r.medianPost, r.maskPixels, r.maskThreshold, maskText];
     [_dt1Result setTextColor:[NSColor labelColor]];
-    [_dt1Result setStringValue:[NSString stringWithFormat:@"ΔT1 map created: medians pre %.4g, post %.4g; head mask %ld pixels (pre > %.4g).%@",
-                                r.medianPre, r.medianPost, r.maskPixels, r.maskThreshold, maskText]];
+    [_dt1Result setStringValue:[NSString stringWithFormat:@"%@ [check: %@]", summary, check]];
     NSLog(@"UMMP ΔT1: %@", [_dt1Result stringValue]);
+
+    // Check once more after IsiX has settled the new viewer.
+    NSTextField *resultField = _dt1Result;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (![[ViewerController getDisplayed2DViewers] containsObject:out]) return;
+        if (!UMMPDeltaT1Intact(out, dt1Data))
+            [resultField setStringValue:[NSString stringWithFormat:@"%@ [after 2 s: viewer does NOT hold ΔT1 any more]", summary]];
+    });
 }
 
 #pragma mark - Standardised rCBV

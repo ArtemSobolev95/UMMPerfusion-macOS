@@ -137,10 +137,12 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   orientation (checked to half a pixel; else refused: same 3D sequence, or resample post onto
   pre first). Per-pair normalisation, not the trained standardisation of IB Delta Suite.
   `Sources/UMMPDeltaT1.h`, `Tests/test_deltat1.c`.
-- Fixed (ΔT1, first test): the new viewer showed the pre-contrast T1 instead of ΔT1. The series
-  are now fully loaded (`checkEverythingLoaded`) before they are read and before the new viewer is
-  written, and every slice of the new viewer is redrawn from the new values. Console line
-  "UMMP ΔT1: … viewer sum …, computed sum …" shows whether the viewer holds the computed values.
+- Fixed (ΔT1, tested in IsiX 6.0): the new viewer showed the pre-contrast T1 instead of ΔT1, and
+  the result line never appeared. IsiX fills a viewer made by `duplicateViewer:` asynchronously
+  with the source pixels (overwriting what the plugin wrote; its pixel list can still be empty when
+  the call returns). The ΔT1 viewer is now built with `+[ViewerController newWindow:::]` from copies
+  of the pre series' slices pointing into the plugin's own ΔT1 volume. The result line ends with a
+  check that the viewer holds the computed values.
 
 ## 1.5.3.2-port.7
 
