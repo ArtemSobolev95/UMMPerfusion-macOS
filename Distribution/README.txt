@@ -50,6 +50,19 @@ QUICK START (DSC, brain tumour)
 Checks: Δt in the panel's chart matches the temporal resolution; grey matter about 2-3x
 white matter on the CBV map. Console.app, filter "UMMP", shows timing, mask and warnings.
 
+
+QUICK START (ΔT1 and tumour burden)
+-----------------------------------
+1. Open the pre- and post-contrast 3D T1 (same sequence and slices) and, for step 4, the rCBV
+   map (rCBV normalised to NAWM, from step 4 above).
+2. Image filters > UMMPerfusion ΔT1 & Tumour Burden. Section 1: choose Pre and Post,
+   "Create ΔT1 Map" (post is aligned onto pre and shading-corrected automatically).
+3. Draw ROIs around the lesion / resection bed (ΔT1 map, pre or post series; Grow Region 3D
+   works), section 2 "Measure Enhancing in ROIs" (enhancing = ΔT1 > 0.2 by default).
+4. Section 3: choose the rCBV map, "Compute Tumour Burden" (low < 1.0, high >= 1.75).
+5. Colour overlay on the post-contrast T1; "Save Current Measurement" for the follow-up table.
+Thresholds are starting points from the literature, not validated for your protocol.
+
 Options (DSC Tools): brain mask, leakage correction and oSVD are on by default; first-pass
 blood volume and clamping of zero-signal frames are off.
 

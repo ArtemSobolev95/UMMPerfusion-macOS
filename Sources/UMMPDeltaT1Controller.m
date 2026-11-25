@@ -26,6 +26,7 @@
 
 static NSString *const UMMPEnhancingPrefix = @"Enhancing";
 static NSString *const UMMPBurdenPrefix = @"FTB";
+static NSString *const UMMPOverlayPrefix = @"ΔT1 overlay";
 
 #pragma mark - Geometry helpers
 
@@ -161,7 +162,7 @@ static void UMMPRemoveROIsWithPrefixes(ViewerController *v, NSArray *prefixes)
 
 // Adds one brush ROI per slice from a per-voxel label volume (the voxels equal to `label`).
 static long UMMPAddBrushROIs(ViewerController *v, const unsigned char *labels, unsigned char label,
-                             NSString *name, RGBColor color)
+                             NSString *name, RGBColor color, float opacity)
 {
     long offset = 0, total = 0;
     NSArray *pixList = [v pixList];
@@ -178,6 +179,7 @@ static long UMMPAddBrushROIs(ViewerController *v, const unsigned char *labels, u
                                             spacingX:[pix pixelSpacingX] spacingY:[pix pixelSpacingY]
                                          imageOrigin:NSMakePoint([pix originX], [pix originY])] autorelease];
             [roi setColor:color];
+            if (opacity > 0) [roi setOpacity:opacity];
             [roi setPix:pix];
             [roi setCurView:[v imageView]];
             [[rois objectAtIndex:s] addObject:roi];
@@ -251,6 +253,9 @@ static NSString *UMMPPercent(double fraction)
 
     NSTextField *_thresholdField, *_measureResult;
     NSTextField *_lowField, *_highField, *_burdenResult;
+    NSPopUpButton *_overlayPopup;
+    NSButton *_overlayInsideBox;
+    NSTextField *_overlayResult;
 
     NSTextField *_patientLabel;
     NSTableView *_historyTable;
@@ -260,6 +265,8 @@ static NSString *UMMPPercent(double fraction)
     NSMutableDictionary *_current;            // the last measurement (enhancing volume, burden)
     NSMutableData *_enhancing;                // 1 per enhancing voxel inside the ROIs, on the ΔT1 grid
     ViewerController *_enhancingViewer;       // not retained: the ΔT1 viewer of _enhancing
+    NSMutableData *_burdenClasses;            // FTB class per voxel (1 low, 2 intermediate, 3 high, 4 no data)
+    ViewerController *_burdenViewer;          // not retained: the ΔT1 viewer of _burdenClasses
 }
 @end
 
@@ -274,7 +281,7 @@ static NSString *UMMPPercent(double fraction)
 
 - (id)init
 {
-    NSPanel *panel = [[[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 700, 860)
+    NSPanel *panel = [[[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 700, 960)
                                                  styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                                            NSWindowStyleMaskResizable | NSWindowStyleMaskUtilityWindow
                                                    backing:NSBackingStoreBuffered defer:YES] autorelease];
@@ -287,7 +294,7 @@ static NSString *UMMPPercent(double fraction)
         [panel setBecomesKeyOnlyIfNeeded:NO];
         [panel setCollectionBehavior:NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace];
         [panel setReleasedWhenClosed:NO];
-        [panel setMinSize:NSMakeSize(640, 780)];
+        [panel setMinSize:NSMakeSize(640, 880)];
         [panel setDelegate:self];
         _viewers = [[NSMutableArray alloc] init];
         _history = [[NSMutableArray alloc] init];
@@ -309,6 +316,7 @@ static NSString *UMMPPercent(double fraction)
     [_patientKey release];
     [_current release];
     [_enhancing release];
+    [_burdenClasses release];
     [super dealloc];
 }
 
@@ -393,6 +401,20 @@ static NSStackView *UMMPColumn(NSArray *views, NSArray *fullWidth)
                                                  UMMPButton(@"Compute Tumour Burden", self, @selector(computeBurden:))]),
                                        _burdenResult], @[_burdenResult]);
 
+    // Overlay on the post-contrast T1 (anatomy underneath, sub-threshold voxels transparent)
+    _overlayPopup = [[[NSPopUpButton alloc] init] autorelease];
+    [_overlayPopup setControlSize:NSControlSizeSmall];
+    [_overlayPopup setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    [_overlayPopup addItemsWithTitles:@[@"ΔT1 graded (yellow · orange · red)", @"FTB classes (green · yellow · red)"]];
+    _overlayInsideBox = UMMPCheckbox(@"only inside my ROIs", self, NULL);
+    [_overlayInsideBox setState:NSControlStateValueOn];
+    _overlayResult = UMMPWrapping(@"Draws the result on the Post series chosen in section 1. ΔT1 graded: threshold–2×, "
+                                  @"2–3.5×, ≥ 3.5× the threshold (0.2 → 0.2–0.4 yellow, 0.4–0.7 orange, ≥ 0.7 red).", YES);
+    NSStackView *overlay = UMMPColumn(@[UMMPRow(@[_overlayPopup, _overlayInsideBox,
+                                                  UMMPButton(@"Show on Post-contrast T1", self, @selector(showOverlay:)),
+                                                  UMMPButton(@"Remove", self, @selector(removeOverlay:))]),
+                                        _overlayResult], @[_overlayResult]);
+
     // 4. Follow-up
     _patientLabel = UMMPLabel(@"Patient: –");
     [_patientLabel setLineBreakMode:NSLineBreakByTruncatingTail];
@@ -429,7 +451,8 @@ static NSStackView *UMMPColumn(NSArray *views, NSArray *fullWidth)
     NSBox *b2 = UMMPSection(@"2. Enhancing volume inside your ROIs", measure);
     NSBox *b3 = UMMPSection(@"3. Fractional tumour burden (ΔT1 × rCBV)", burden);
     NSBox *b4 = UMMPSection(@"4. Follow-up of this patient", follow);
-    NSStackView *main = [NSStackView stackViewWithViews:@[b1, b2, b3, b4]];
+    NSBox *b5 = UMMPSection(@"Colour overlay on the post-contrast T1", overlay);
+    NSStackView *main = [NSStackView stackViewWithViews:@[b1, b2, b3, b5, b4]];
     [main setOrientation:NSUserInterfaceLayoutOrientationVertical];
     [main setAlignment:NSLayoutAttributeLeading];
     [main setSpacing:10];
@@ -443,7 +466,8 @@ static NSStackView *UMMPColumn(NSArray *views, NSArray *fullWidth)
         [[b1 widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
         [[b2 widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
         [[b3 widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
-        [[b4 widthAnchor] constraintEqualToAnchor:[main widthAnchor]]]];
+        [[b4 widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
+        [[b5 widthAnchor] constraintEqualToAnchor:[main widthAnchor]]]];
     [b4 setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
 }
 
@@ -557,6 +581,7 @@ static BOOL UMMPTitleContains(ViewerController *v, NSString *text)
     void *v = (void *)[note object];
     if (v == (void *)_lastCreated) _lastCreated = nil;
     if (v == (void *)_enhancingViewer) { _enhancingViewer = nil; [_enhancing release]; _enhancing = nil; }
+    if (v == (void *)_burdenViewer) { _burdenViewer = nil; [_burdenClasses release]; _burdenClasses = nil; }
     // Forget the closing viewer now (it is freed before the refresh below runs), keeping the
     // popups in the same order as the list.
     for (NSUInteger i = 0; i < [_viewers count]; i++)
@@ -700,7 +725,7 @@ static BOOL UMMPTitleContains(ViewerController *v, NSString *text)
             BOOL any = NO;
             for (ROI *roi in (s < [rois count] ? [rois objectAtIndex:s] : @[])) {
                 NSString *name = [roi name] ?: @"";
-                if ([name hasPrefix:UMMPEnhancingPrefix] || [name hasPrefix:UMMPBurdenPrefix] || !UMMPIsAreaROI(roi)) continue;
+                if ([name hasPrefix:UMMPEnhancingPrefix] || [name hasPrefix:UMMPBurdenPrefix] || [name hasPrefix:UMMPOverlayPrefix] || !UMMPIsAreaROI(roi)) continue;
                 long count = 0;
                 float *loc = NULL;
                 float *values = [p getROIValue:&count :roi :&loc];
@@ -749,12 +774,15 @@ static BOOL UMMPTitleContains(ViewerController *v, NSString *text)
 
     UMMPRemoveROIsWithPrefixes(dt1, @[UMMPEnhancingPrefix, UMMPBurdenPrefix]);
     RGBColor orange = {65535, 32768, 0};
-    UMMPAddBrushROIs(dt1, e, 1, [NSString stringWithFormat:@"Enhancing in ROI (ΔT1 > %g)", threshold], orange);
+    UMMPAddBrushROIs(dt1, e, 1, [NSString stringWithFormat:@"Enhancing in ROI (ΔT1 > %g)", threshold], orange, 0);
     [dt1 needsDisplayUpdate];
 
     [_enhancing release];
     _enhancing = [enh retain];
     _enhancingViewer = dt1;
+    [_burdenClasses release];
+    _burdenClasses = nil;
+    _burdenViewer = nil;
     NSDictionary *patient = UMMPPatientInfo(dt1);
     [_current release];
     _current = [[NSMutableDictionary alloc] initWithDictionary:@{
@@ -851,12 +879,14 @@ static BOOL UMMPTitleContains(ViewerController *v, NSString *text)
     double voxelMl = [p0 pixelSpacingX] * [p0 pixelSpacingY] * UMMPSliceInterval(dPix) / 1000.0;
     UMMPRemoveROIsWithPrefixes(dt1, @[UMMPEnhancingPrefix, UMMPBurdenPrefix]);
     RGBColor red = {65535, 0, 0}, yellow = {65535, 60000, 0}, green = {0, 52000, 0}, grey = {38000, 38000, 38000};
-    UMMPAddBrushROIs(dt1, cls, 3, [NSString stringWithFormat:@"FTB high CBV (≥ %g)", high], red);
-    UMMPAddBrushROIs(dt1, cls, 2, @"FTB intermediate CBV", yellow);
-    UMMPAddBrushROIs(dt1, cls, 1, [NSString stringWithFormat:@"FTB low CBV (< %g)", low], green);
-    UMMPAddBrushROIs(dt1, cls, 4, @"FTB no perfusion data", grey);
+    UMMPAddBrushROIs(dt1, cls, 3, [NSString stringWithFormat:@"FTB high CBV (≥ %g)", high], red, 0);
+    UMMPAddBrushROIs(dt1, cls, 2, @"FTB intermediate CBV", yellow, 0);
+    UMMPAddBrushROIs(dt1, cls, 1, [NSString stringWithFormat:@"FTB low CBV (< %g)", low], green, 0);
+    UMMPAddBrushROIs(dt1, cls, 4, @"FTB no perfusion data", grey, 0);
     [dt1 needsDisplayUpdate];
-    free(cls);
+    [_burdenClasses release];
+    _burdenClasses = [[NSMutableData alloc] initWithBytesNoCopy:cls length:(NSUInteger)total freeWhenDone:YES];
+    _burdenViewer = dt1;
 
     NSString *mapName = [[map window] title] ?: @"map";
     BOOL standardised = UMMPTitleContains(map, @"sRCBV");
@@ -879,6 +909,99 @@ static BOOL UMMPTitleContains(ViewerController *v, NSString *text)
         @"shift — compare with the map.",
         standardised ? @"sRCBV" : @"rCBV", mapName, enh * voxelMl, covered * voxelMl, 100.0 * covered / MAX(enh, 1),
         high, 100 * fh, 100 * fm, low, 100 * fl, sumCBV / covered]];
+}
+
+#pragma mark - Colour overlay on the post-contrast T1
+
+- (ViewerController *)overlayTarget:(ViewerController *)dt1
+{
+    ViewerController *post = [self viewerForPopup:_postPopup];
+    if (post && post != dt1 && !UMMPGeometryMismatch(post, dt1)) return post;
+    // Else another open series of the same grid that is not the chosen Pre series (nor the ΔT1 map).
+    ViewerController *pre = [self viewerForPopup:_prePopup];
+    for (ViewerController *v in [ViewerController getDisplayed2DViewers])
+        if (v != dt1 && v != pre && [v maxMovieIndex] <= 1 && !UMMPGeometryMismatch(v, dt1)) return v;
+    return nil;
+}
+
+- (void)showOverlay:(id)sender
+{
+    ViewerController *dt1 = [self viewerForPopup:_dt1Popup];
+    if (!dt1) { [self showMessage:@"No ΔT1 map" text:@"Create a ΔT1 map (section 1) or choose its viewer in section 2."]; return; }
+    ViewerController *target = [self overlayTarget:dt1];
+    if (!target) {
+        [self showMessage:@"No post-contrast viewer"
+                     text:@"Open the post-contrast T1 (same series as used for the ΔT1 map) and choose it as Post in section 1."];
+        return;
+    }
+    BOOL inside = ([_overlayInsideBox state] == NSControlStateValueOn);
+    BOOL burden = ([_overlayPopup indexOfSelectedItem] == 1);
+    long total = 0;
+    for (DCMPix *p in [dt1 pixList]) total += (long)[p pwidth] * [p pheight];
+    if (burden && (!_burdenClasses || _burdenViewer != dt1)) {
+        [self showMessage:@"No tumour burden yet" text:@"Compute the tumour burden (section 3) for this ΔT1 map first."];
+        return;
+    }
+    if (!burden && inside && (!_enhancing || _enhancingViewer != dt1)) {
+        if (![self measureEnhancingQuietly:NO]) return;
+    }
+
+    unsigned char *labels = (unsigned char *)calloc((size_t)MAX(total, 1), 1);
+    long counts[5] = {0};
+    if (burden) {
+        memcpy(labels, [_burdenClasses bytes], (size_t)MIN(total, (long)[_burdenClasses length]));
+        for (long i = 0; i < total; i++) if (labels[i] < 5) counts[labels[i]]++;
+    } else {
+        double t = [_thresholdField doubleValue];
+        const unsigned char *e = inside ? (const unsigned char *)[_enhancing bytes] : NULL;
+        long offset = 0;
+        for (DCMPix *p in [dt1 pixList]) {
+            long size = (long)[p pwidth] * [p pheight];
+            float *img = [p fImage];
+            for (long i = 0; img && i < size; i++) {
+                float v = img[i];
+                if (!(isfinite(v) && v > t) || (e && !e[offset + i])) continue;
+                unsigned char c = (v >= 3.5 * t) ? 3 : (v >= 2 * t ? 2 : 1);
+                labels[offset + i] = c;
+                counts[c]++;
+            }
+            offset += size;
+        }
+    }
+    UMMPRemoveROIsWithPrefixes(target, @[UMMPOverlayPrefix]);
+    double t = [_thresholdField doubleValue];
+    if (burden) {
+        RGBColor red = {65535, 0, 0}, yellow = {65535, 60000, 0}, green = {0, 52000, 0};
+        UMMPAddBrushROIs(target, labels, 3, [UMMPOverlayPrefix stringByAppendingString:@" FTB high CBV"], red, 0.55f);
+        UMMPAddBrushROIs(target, labels, 2, [UMMPOverlayPrefix stringByAppendingString:@" FTB intermediate"], yellow, 0.55f);
+        UMMPAddBrushROIs(target, labels, 1, [UMMPOverlayPrefix stringByAppendingString:@" FTB low CBV"], green, 0.55f);
+    } else {
+        RGBColor yellow = {65535, 60000, 0}, orange = {65535, 32768, 0}, red = {65535, 0, 0};
+        UMMPAddBrushROIs(target, labels, 1, [NSString stringWithFormat:@"%@ %g–%g", UMMPOverlayPrefix, t, 2 * t], yellow, 0.55f);
+        UMMPAddBrushROIs(target, labels, 2, [NSString stringWithFormat:@"%@ %g–%g", UMMPOverlayPrefix, 2 * t, 3.5 * t], orange, 0.55f);
+        UMMPAddBrushROIs(target, labels, 3, [NSString stringWithFormat:@"%@ ≥ %g", UMMPOverlayPrefix, 3.5 * t], red, 0.55f);
+    }
+    free(labels);
+    [target needsDisplayUpdate];
+    [[target window] orderFront:nil];
+    [_overlayResult setTextColor:[NSColor labelColor]];
+    if (burden)
+        [_overlayResult setStringValue:[NSString stringWithFormat:@"FTB classes drawn on “%@”: high %ld, intermediate %ld, low %ld voxels (grey “no perfusion data” not drawn).",
+                                        [[target window] title], counts[3], counts[2], counts[1]]];
+    else
+        [_overlayResult setStringValue:[NSString stringWithFormat:@"ΔT1 drawn on “%@”%@: %g–%g yellow %ld, %g–%g orange %ld, ≥ %g red %ld voxels.",
+                                        [[target window] title], inside ? @" (inside your ROIs)" : @" (whole series: includes normal enhancement)",
+                                        t, 2 * t, counts[1], 2 * t, 3.5 * t, counts[2], 3.5 * t, counts[3]]];
+}
+
+- (void)removeOverlay:(id)sender
+{
+    ViewerController *dt1 = [self viewerForPopup:_dt1Popup];
+    ViewerController *target = dt1 ? [self overlayTarget:dt1] : [self viewerForPopup:_postPopup];
+    if (!target) { NSBeep(); return; }
+    UMMPRemoveROIsWithPrefixes(target, @[UMMPOverlayPrefix]);
+    [target needsDisplayUpdate];
+    [_overlayResult setStringValue:@"Overlay removed."];
 }
 
 #pragma mark - 4. Follow-up

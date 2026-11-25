@@ -6,16 +6,18 @@ Apple silicon and Intel. It is a port of
 (Universitätsmedizin Mannheim), extended for DSC brain perfusion.
 
 > **Research and teaching use only.** Not a medical device and not validated for diagnosis.
-> Check results against the software you normally use before relying on them.
+> Check results against the software you normally use before relying on them. The sRCBV and ΔT1
+> scales are this plugin's own (not those of IB Neuro / IB Delta Suite); published thresholds
+> are starting points, not validated cut-offs for your protocol.
 
 ## Download
 
-Current version: **1.5.3.2-port.7**. Click the package for your viewer:
+Current version: **1.5.3.2-port.8**. Click the package for your viewer:
 
 | Viewer | Download | macOS | Mac |
 |---|---|---|---|
-| IsiX DICOM Viewer 6.0.3+ (GitHub build) | [**UMMPerfusion-IsiX-1.5.3.2-port.7.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-IsiX-1.5.3.2-port.7.zip) | 15 or later | Apple silicon and Intel |
-| Horos 4.0.1 | [**UMMPerfusion-Horos-1.5.3.2-port.7.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-Horos-1.5.3.2-port.7.zip) | 11 or later | Apple silicon and Intel |
+| IsiX DICOM Viewer 6.0.3+ (GitHub build) | [**UMMPerfusion-IsiX-1.5.3.2-port.8.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-IsiX-1.5.3.2-port.8.zip) | 15 or later | Apple silicon and Intel |
+| Horos 4.0.1 | [**UMMPerfusion-Horos-1.5.3.2-port.8.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-Horos-1.5.3.2-port.8.zip) | 11 or later | Apple silicon and Intel |
 
 Each package works on both kinds of Mac. The App Store version of IsiX loads no plugins; use the
 [GitHub build of IsiX](https://github.com/ThalesMMS/IsiX-DICOM-Viewer-macOS/releases).
@@ -31,8 +33,9 @@ All files are also in the [`downloads/`](downloads) folder.
    *Open Anyway*, then double-click it again.
 3. Open the viewer. *Plugins › Plugins Manager* should list UMMPerfusion as loaded.
 
-The plugin appears under the image filters menu as **UMMPerfusion**, **UMMPerfusion DSC Tools**
-and **UMMPerfusion Time Curves**. The README in the package has a quick start.
+The plugin appears under the image filters menu as **UMMPerfusion**, **UMMPerfusion DSC Tools**,
+**UMMPerfusion Time Curves** and **UMMPerfusion ΔT1 & Tumour Burden**. The README in the package
+has a quick start.
 
 Toolbar buttons: right-click the viewer toolbar › *Customize Toolbar…* and drag **UMMPerfusion**,
 **UMMPerfusion DSC Tools** and **UMMPerfusion Time Curves** onto it.
@@ -52,6 +55,17 @@ Added in this port:
 - **Automatic rCBV map** normalised to an ROI named `NAWM` (or the whole-brain median)
 - **DSC Tools** window: ROI statistics, normalised maps, CSV export, AIF check and AIF search
 - **Time Curves** window: compare signal / enhancement curves of several ROIs (DCE or DSC)
+- **Standardised rCBV (sRCBV)**: histogram standardisation (Bedekar et al. 2010) with your own
+  calibration cases, so maps share one scale without a reference ROI; calibration export/import
+- **ΔT1 & Tumour Burden** window:
+  - **ΔT1 map** from pre- and post-contrast 3D T1, with automatic rigid alignment (head movement
+    between the scans) and coil-shading correction
+  - **Enhancing volume** inside the ROIs you draw (lesion, resection bed)
+  - **Fractional tumour burden**: the enhancing voxels classified by the rCBV/sRCBV map (low <
+    1.0, high ≥ 1.75 by default, as in Iv et al. AJNR 2019), sampled in scanner coordinates
+  - **Colour overlay** of ΔT1 or of the FTB classes on the post-contrast T1
+  - **Follow-up** table per patient: change from baseline and nadir, modified-RANO volumetric
+    ranges, CSV export
 - DCE maps over the whole slice with masking and smoothing; robust failed-fit handling
 - Correct timing (Δt) from DICOM acquisition times, multithreading fixes, dark mode, colour maps
   (Rainbow2 by default)

@@ -32,7 +32,7 @@ xattr -dr com.apple.quarantine "$DEST/$PLUGIN" 2>/dev/null
 
 echo
 echo "Installed: $DEST/$PLUGIN"
-echo "Open Horos; the plugin is in Plugins > Image Filters (UMMPerfusion, UMMPerfusion DSC Tools)."
+echo "Open Horos; the plugin is in Plugins > Image Filters (UMMPerfusion, DSC Tools, Time Curves, ΔT1 & Tumour Burden)."
 echo "Plugins > Plugins Manager shows whether it loaded."
 echo
 read -n 1 -s -r -p "Press any key to close."

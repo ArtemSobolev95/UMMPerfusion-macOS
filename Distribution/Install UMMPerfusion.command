@@ -37,7 +37,7 @@ xattr -dr com.apple.quarantine "$DEST/$PLUGIN" 2>/dev/null
 
 echo
 echo "Installed: $DEST/$PLUGIN"
-echo "Open IsiX; the plugin is in the image filters menu (UMMPerfusion, UMMPerfusion DSC Tools)."
+echo "Open IsiX; the plugin is in the image filters menu (UMMPerfusion, DSC Tools, Time Curves, ΔT1 & Tumour Burden)."
 echo "Plugins > Plugins Manager shows whether it loaded."
 echo
 read -n 1 -s -r -p "Press any key to close."

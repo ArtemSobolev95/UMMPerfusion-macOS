@@ -111,7 +111,7 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   not run since the port (see TESTING.md).
 - Code clean-up of the original (dead shuttle-mode and 32-bit code, manual memory management).
 
-## 1.5.3.2-port.8 (not yet built)
+## 1.5.3.2-port.8
 
 - **Standardised rCBV (sRCBV)**: rCBV on one scale for all patients and visits without a reference
   ROI. Histogram standardisation of Nyúl & Udupa as applied to rCBV by Bedekar, Jensen & Schmainda
@@ -147,6 +147,10 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   Tools), enhancing volume inside user ROIs, fractional tumour burden from an rCBV/sRCBV map
   sampled in scanner coordinates, per-patient follow-up (hashed patient ID) with change from
   baseline and nadir and the modified-RANO volumetric ranges, CSV export.
+- **Colour overlay on the post-contrast T1** (ΔT1 & Tumour Burden window): the enhancing voxels
+  graded by ΔT1 (threshold–2×, 2–3.5×, ≥ 3.5× the threshold: yellow, orange, red) or the FTB
+  classes (green, yellow, red), semi-transparent brush ROIs named "ΔT1 overlay …" (ignored by the
+  measurements); inside your ROIs or over the whole series; Remove button.
 - Fixed: closing a viewer while the ΔT1 window was open crashed IsiX (a stored pointer to the
   closed viewer was messaged by -[NSArray containsObject:]). Viewers are now compared by address.
 - ΔT1: **automatic rigid alignment** of the post series onto the pre series [on] and **shading
