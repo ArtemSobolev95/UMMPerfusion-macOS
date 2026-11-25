@@ -17,11 +17,11 @@
 	<key>CFBundlePackageType</key>
 	<string>BNDL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.5.3.2-port.6</string>
+	<string>1.5.3.2-port.7</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>1.5.3.2.6</string>
+	<string>1.5.3.2.7</string>
 	<key>MenuTitles</key>
 	<array>
 		<string>UMMPerfusion</string>
