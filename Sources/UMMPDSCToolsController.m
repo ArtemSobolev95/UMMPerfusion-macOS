@@ -5,6 +5,7 @@
 #import "UMMPDSCToolsController.h"
 #import "UMMPDSCEngine.h"
 #import "UMMPSRCBV.h"
+#import "UMMPDeltaT1.h"
 #import "UMMPerfusionFilter.h"
 #import "UMMPCurvesController.h"
 #import <OsiriXAPI/ViewerController.h>
@@ -93,6 +94,10 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
     NSButton *_maskBox, *_leakageBox, *_osvdBox, *_firstPassBox, *_clampBox;
     NSButton *_dceWholeBox, *_dceSmoothBox, *_autoRCBVBox, *_autoSRCBVBox;
     NSTextField *_srcbvSummary;
+    NSPopUpButton *_preT1Popup, *_postT1Popup;
+    NSMutableArray *_t1Viewers;           // NSValue (non-retained ViewerController), same order as the popups
+    NSTextField *_dt1ThresholdField, *_dt1Result;
+    NSButton *_dt1MaskBox;
     NSPopUpButton *_clutPopup;
     NSTextField *_maskField, *_oiField;
 
@@ -120,7 +125,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
 
 - (id)init
 {
-    NSPanel *panel = [[[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 680, 820)
+    NSPanel *panel = [[[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 680, 960)
                                                  styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                                            NSWindowStyleMaskResizable | NSWindowStyleMaskUtilityWindow
                                                    backing:NSBackingStoreBuffered defer:YES] autorelease];
@@ -134,10 +139,11 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
         [panel setBecomesKeyOnlyIfNeeded:NO];
         [panel setCollectionBehavior:NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace];
         [panel setReleasedWhenClosed:NO];
-        [panel setMinSize:NSMakeSize(600, 800)];
+        [panel setMinSize:NSMakeSize(600, 900)];
         [panel setDelegate:self];
         _rows = [[NSMutableArray alloc] init];
         _roiEntries = [[NSMutableArray alloc] init];
+        _t1Viewers = [[NSMutableArray alloc] init];
         _referenceMean = NAN;
         [self buildInterface];
         [self loadSettings];
@@ -154,6 +160,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_rows release];
     [_roiEntries release];
+    [_t1Viewers release];
     [_referenceTitle release];
     [super dealloc];
 }
@@ -289,12 +296,41 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
     [[_srcbvSummary widthAnchor] constraintEqualToAnchor:[srcbv widthAnchor]].active = YES;
     [[srcbvNote widthAnchor] constraintEqualToAnchor:[srcbv widthAnchor]].active = YES;
 
+    // ΔT1
+    _preT1Popup = [[[NSPopUpButton alloc] init] autorelease];
+    _postT1Popup = [[[NSPopUpButton alloc] init] autorelease];
+    for (NSPopUpButton *b in @[_preT1Popup, _postT1Popup]) {
+        [b setControlSize:NSControlSizeSmall];
+        [b setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+        [[b widthAnchor] constraintLessThanOrEqualToConstant:230].active = YES;
+    }
+    _dt1ThresholdField = UMMPNumberField(@"0.2", 44);
+    _dt1MaskBox = UMMPCheckbox(@"Mark pixels with ΔT1 above", self, NULL);
+    [_dt1MaskBox setState:NSControlStateValueOn];
+    _dt1Result = [NSTextField wrappingLabelWithString:
+        @"Open the pre- and post-contrast T1 series (same sequence, same slices) in two viewers. "
+        @"ΔT1 = post ÷ its median − pre ÷ its median, inside the head mask (brain-mask % above); "
+        @"0 = no enhancement. Per-pair normalisation, not the IB Delta Suite scale."];
+    [_dt1Result setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    [_dt1Result setTextColor:[NSColor secondaryLabelColor]];
+    [_dt1Result setSelectable:YES];
+    NSStackView *dt1Row1 = UMMPRow(@[UMMPLabel(@"Pre:"), _preT1Popup, UMMPLabel(@"Post:"), _postT1Popup,
+                                     UMMPButton(@"Refresh", self, @selector(refreshT1Viewers:))]);
+    NSStackView *dt1Row2 = UMMPRow(@[_dt1MaskBox, _dt1ThresholdField, UMMPLabel(@"as ROI “Enhancing (ΔT1)”"),
+                                     UMMPButton(@"Create ΔT1 Map", self, @selector(createDeltaT1Map:))]);
+    NSStackView *dt1 = [NSStackView stackViewWithViews:@[dt1Row1, dt1Row2, _dt1Result]];
+    [dt1 setOrientation:NSUserInterfaceLayoutOrientationVertical];
+    [dt1 setAlignment:NSLayoutAttributeLeading];
+    [dt1 setSpacing:6];
+    [[_dt1Result widthAnchor] constraintEqualToAnchor:[dt1 widthAnchor]].active = YES;
+
     NSBox *optionsBox = UMMPSection(@"Calculation options", options);
     NSBox *statsBox = UMMPSection(@"ROI statistics and normalisation (map viewer)", stats);
     NSBox *aifBox = UMMPSection(@"Arterial input function (4D series)", aif);
     NSBox *srcbvBox = UMMPSection(@"Standardised rCBV (sRCBV, map viewer)", srcbv);
+    NSBox *dt1Box = UMMPSection(@"ΔT1 map (pre- and post-contrast T1)", dt1);
 
-    NSStackView *main = [NSStackView stackViewWithViews:@[viewerRow, optionsBox, statsBox, srcbvBox, aifBox]];
+    NSStackView *main = [NSStackView stackViewWithViews:@[viewerRow, optionsBox, statsBox, srcbvBox, dt1Box, aifBox]];
     [main setOrientation:NSUserInterfaceLayoutOrientationVertical];
     [main setAlignment:NSLayoutAttributeLeading];
     [main setSpacing:10];
@@ -309,6 +345,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
         [[statsBox widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
         [[aifBox widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
         [[srcbvBox widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
+        [[dt1Box widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
         [[viewerRow widthAnchor] constraintEqualToAnchor:[main widthAnchor]]]];
     [statsBox setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
 }
@@ -331,6 +368,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
     [_rows removeAllObjects];
     [_table reloadData];
     [self refreshROIs:nil];
+    [self refreshT1Viewers:nil];
 }
 
 - (void)useFrontmostViewer:(id)sender
@@ -347,6 +385,11 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
 - (void)viewerWillClose:(NSNotification *)note
 {
     if ([note object] == _viewer) [self setViewer:nil];
+    for (NSValue *v in _t1Viewers)
+        if ([v nonretainedObjectValue] == [note object]) {
+            dispatch_async(dispatch_get_main_queue(), ^{ [self refreshT1Viewers:nil]; });
+            break;
+        }
 }
 
 - (BOOL)requireViewer
@@ -412,6 +455,162 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
 - (void)windowDidBecomeKey:(NSNotification *)note
 {
     [self loadSettings];
+}
+
+#pragma mark - ΔT1
+
+// Every open 2D viewer with one time frame (the T1 series), for the Pre / Post popups.
+- (void)refreshT1Viewers:(id)sender
+{
+    NSString *pre = [[[_preT1Popup titleOfSelectedItem] copy] autorelease];
+    NSString *post = [[[_postT1Popup titleOfSelectedItem] copy] autorelease];
+    [_t1Viewers removeAllObjects];
+    [_preT1Popup removeAllItems];
+    [_postT1Popup removeAllItems];
+    NSArray *viewers = [ViewerController getDisplayed2DViewers];
+    for (ViewerController *v in viewers) {
+        if ([v maxMovieIndex] > 1) continue;
+        NSString *title = [[v window] title];
+        if (![title length]) title = @"Viewer";
+        NSString *unique = title;
+        for (int k = 2; [_preT1Popup itemWithTitle:unique]; k++) unique = [NSString stringWithFormat:@"%@ (%d)", title, k];
+        [_preT1Popup addItemWithTitle:unique];
+        [_postT1Popup addItemWithTitle:unique];
+        [_t1Viewers addObject:[NSValue valueWithNonretainedObject:v]];
+    }
+    if (pre && [_preT1Popup itemWithTitle:pre]) [_preT1Popup selectItemWithTitle:pre];
+    if (post && [_postT1Popup itemWithTitle:post]) [_postT1Popup selectItemWithTitle:post];
+    else if ([_postT1Popup numberOfItems] > 1 && [_postT1Popup indexOfSelectedItem] == [_preT1Popup indexOfSelectedItem])
+        [_postT1Popup selectItemAtIndex:1];
+}
+
+- (ViewerController *)t1ViewerForPopup:(NSPopUpButton *)popup
+{
+    NSInteger i = [popup indexOfSelectedItem];
+    if (i < 0 || i >= (NSInteger)[_t1Viewers count]) return nil;
+    ViewerController *v = [[_t1Viewers objectAtIndex:i] nonretainedObjectValue];
+    return [[ViewerController getDisplayed2DViewers] containsObject:v] ? v : nil;
+}
+
+// Same matrix, slices, position and orientation (within half a pixel). nil, or what differs.
+static NSString *UMMPGeometryMismatch(ViewerController *a, ViewerController *b)
+{
+    NSArray *pa = [a pixList], *pb = [b pixList];
+    if ([pa count] != [pb count])
+        return [NSString stringWithFormat:@"%lu slices vs %lu slices", (unsigned long)[pa count], (unsigned long)[pb count]];
+    for (NSUInteger s = 0; s < [pa count]; s++) {
+        DCMPix *x = [pa objectAtIndex:s], *y = [pb objectAtIndex:s];
+        if ([x pwidth] != [y pwidth] || [x pheight] != [y pheight])
+            return [NSString stringWithFormat:@"matrix %ld×%ld vs %ld×%ld", [x pwidth], [x pheight], [y pwidth], [y pheight]];
+        double tol = 0.5 * MIN([x pixelSpacingX], [x pixelSpacingY]);
+        if (!(tol > 0)) tol = 0.5;
+        double d = sqrt(pow([x originX] - [y originX], 2) + pow([x originY] - [y originY], 2) + pow([x originZ] - [y originZ], 2));
+        if (d > tol) return [NSString stringWithFormat:@"slice %lu is %.1f mm apart", (unsigned long)s + 1, d];
+        double ox[9], oy[9];
+        [x orientationDouble:ox];
+        [y orientationDouble:oy];
+        for (int k = 0; k < 6; k++)
+            if (fabs(ox[k] - oy[k]) > 1e-3) return [NSString stringWithFormat:@"slice %lu has another orientation", (unsigned long)s + 1];
+    }
+    return nil;
+}
+
+static float *UMMPVolumeCopy(ViewerController *v, long *count)
+{
+    long total = 0;
+    for (DCMPix *pix in [v pixList]) total += (long)[pix pwidth] * [pix pheight];
+    float *out = (float *)malloc(sizeof(float) * (size_t)(total > 0 ? total : 1));
+    long n = 0;
+    for (DCMPix *pix in [v pixList]) {
+        long size = (long)[pix pwidth] * [pix pheight];
+        float *img = [pix fImage];
+        if (img) memcpy(out + n, img, sizeof(float) * (size_t)size);
+        else for (long i = 0; i < size; i++) out[n + i] = NAN;
+        n += size;
+    }
+    *count = n;
+    return out;
+}
+
+- (void)createDeltaT1Map:(id)sender
+{
+    [self refreshT1Viewers:nil];
+    ViewerController *pre = [self t1ViewerForPopup:_preT1Popup], *post = [self t1ViewerForPopup:_postT1Popup];
+    if (!pre || !post || pre == post) {
+        [self showMessage:@"Choose two series" text:@"Open the pre- and the post-contrast T1 series in two viewers and choose them as Pre and Post."];
+        return;
+    }
+    if (!_filter) return;
+    NSString *mismatch = UMMPGeometryMismatch(pre, post);
+    if (mismatch) {
+        [self showMessage:@"The two series do not overlap"
+                     text:[NSString stringWithFormat:@"Pre and post must have the same matrix, slices and position (%@). "
+                           @"Use the same 3D T1 sequence before and after contrast, or resample the post series onto the pre series first.", mismatch]];
+        return;
+    }
+    long n = 0, m = 0;
+    float *a = UMMPVolumeCopy(pre, &n), *b = UMMPVolumeCopy(post, &m);
+    float *d = (float *)malloc(sizeof(float) * (size_t)(n > 0 ? n : 1));
+    UMMPDT1Result r;
+    int ok = (n == m) && UMMPDT1Compute(a, b, d, n, UMMPDCEMaskFraction(), &r);
+    free(a); free(b);
+    if (!ok) {
+        free(d);
+        [self showMessage:@"No ΔT1 map" text:@"The pre series has too few pixels above the head-mask threshold, or no signal."];
+        return;
+    }
+    ViewerController *out = [_filter duplicateViewer:pre deleteROIs:YES];
+    if (!out) { free(d); return; }
+    long offset = 0;
+    for (DCMPix *pix in [out pixList]) {
+        long size = (long)[pix pwidth] * [pix pheight];
+        float *img = [pix fImage];
+        if (img) memcpy(img, d + offset, sizeof(float) * (size_t)size);
+        offset += size;
+    }
+    NSString *name = @"ΔT1 (post ÷ median − pre ÷ median)";
+    [[[out pixList] objectAtIndex:0] setGeneratedName:name];
+
+    NSString *maskText = @"";
+    double threshold = [_dt1ThresholdField doubleValue];
+    if ([_dt1MaskBox state] == NSControlStateValueOn && threshold > 0) {
+        long marked = 0; double volume = 0;
+        NSString *roiName = [NSString stringWithFormat:@"Enhancing (ΔT1 > %g)", threshold];
+        offset = 0;
+        NSArray *pixList = [out pixList];
+        for (NSUInteger s = 0; s < [pixList count]; s++) {
+            DCMPix *pix = [pixList objectAtIndex:s];
+            long w = [pix pwidth], h = [pix pheight], size = w * h, here = 0;
+            unsigned char *mask = (unsigned char *)calloc((size_t)size, 1);
+            for (long i = 0; i < size; i++) if (d[offset + i] > threshold) { mask[i] = 255; here++; }
+            offset += size;
+            if (here) {
+                ROI *roi = [[[ROI alloc] initWithTexture:mask textWidth:(int)w textHeight:(int)h textName:roiName
+                                               positionX:0 positionY:0
+                                                spacingX:[pix pixelSpacingX] spacingY:[pix pixelSpacingY]
+                                             imageOrigin:NSMakePoint([pix originX], [pix originY])] autorelease];
+                RGBColor orange = {65535, 32768, 0};
+                [roi setColor:orange];
+                [roi setPix:pix];
+                [roi setCurView:[out imageView]];
+                [[[out roiList:0] objectAtIndex:s] addObject:roi];
+                marked += here;
+                double thick = [pix sliceInterval] > 0 ? [pix sliceInterval] : [pix sliceThickness];
+                volume += here * [pix pixelSpacingX] * [pix pixelSpacingY] * thick / 1000.0;
+            }
+            free(mask);
+        }
+        maskText = marked
+            ? [NSString stringWithFormat:@" ROI “%@”: %ld pixels, %.2f ml (raw threshold: includes vessels, choroid plexus and motion rims — edit the ROI).", roiName, marked, volume]
+            : [NSString stringWithFormat:@" No pixel above %g.", threshold];
+    }
+    free(d);
+    [out needsDisplayUpdate];
+    [out setWL:0.25 WW:1.0];
+    [_dt1Result setTextColor:[NSColor labelColor]];
+    [_dt1Result setStringValue:[NSString stringWithFormat:@"ΔT1 map created: medians pre %.4g, post %.4g; head mask %ld pixels (pre > %.4g).%@",
+                                r.medianPre, r.medianPost, r.maskPixels, r.maskThreshold, maskText]];
+    NSLog(@"UMMP ΔT1: %@", [_dt1Result stringValue]);
 }
 
 #pragma mark - Standardised rCBV

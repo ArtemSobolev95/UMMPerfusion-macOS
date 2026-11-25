@@ -129,6 +129,14 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   same protocol). Option: create an sRCBV map automatically after Fast Deconvolution when a
   calibration exists [on].
 - `Tests/test_standardize.c`: checks of the maths on synthetic maps (plain C, runs anywhere).
+- **ΔT1 map** (DSC Tools › "ΔT1 map"): choose the pre- and post-contrast T1 viewers; each series
+  is divided by the median of its own pixels inside the head mask (pre signal > brain-mask % of
+  its 99th percentile), then ΔT1 = post − pre, so non-enhancing tissue is ≈ 0 whatever the gain
+  of each series; 0 outside the mask. Optional brush ROI "Enhancing (ΔT1 > t)" [t = 0.2] on every
+  slice, with pixel count and volume in ml. Both series must share matrix, slices, position and
+  orientation (checked to half a pixel; else refused: same 3D sequence, or resample post onto
+  pre first). Per-pair normalisation, not the trained standardisation of IB Delta Suite.
+  `Sources/UMMPDeltaT1.h`, `Tests/test_deltat1.c`.
 
 ## 1.5.3.2-port.7
 

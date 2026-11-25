@@ -39,6 +39,16 @@ report is in Console › Crash Reports (IsiX DICOM Viewer).
 - [ ] Export, Reset, Import (Replace and Add to Current); Remove Last Case.
 - [ ] With ≥ 10 cases: NAWM sRCBV of new patients near 1 without drawing any ROI.
 
+## C3. ΔT1 map (DSC Tools › ΔT1 map)
+
+- [ ] `cc -O2 -o /tmp/t Tests/test_deltat1.c -lm && /tmp/t` prints "all checks passed".
+- [ ] Pre and Post popups list the open single-frame viewers; Refresh after opening another series.
+- [ ] Pre = Post, or series with other slices/matrix: refused with the reason.
+- [ ] Same 3D T1 before and after contrast: new viewer "ΔT1 …"; white matter ≈ 0, enhancing lesion,
+      vessels and choroid plexus positive; background 0; result line shows medians and mask size.
+- [ ] ROI "Enhancing (ΔT1 > 0.2)" on every slice with enhancement; volume plausible against a manual
+      measurement; unchecking the box makes no ROI.
+
 ## D. Untouched parts (compiled, not run since the port)
 
 - [ ] DCE: one ROI-based fit (e.g. Modified Tofts) and one pixel-based map.
