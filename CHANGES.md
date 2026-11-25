@@ -143,6 +143,12 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   the call returns). The ΔT1 viewer is now built with `+[ViewerController newWindow:::]` from copies
   of the pre series' slices pointing into the plugin's own ΔT1 volume. The result line ends with a
   check that the viewer holds the computed values.
+- **ΔT1 & Tumour Burden window** (own menu item; button in DSC Tools): ΔT1 map (moved out of DSC
+  Tools), enhancing volume inside user ROIs, fractional tumour burden from an rCBV/sRCBV map
+  sampled in scanner coordinates, per-patient follow-up (hashed patient ID) with change from
+  baseline and nadir and the modified-RANO volumetric ranges, CSV export.
+- Fixed: closing a viewer while the ΔT1 window was open crashed IsiX (a stored pointer to the
+  closed viewer was messaged by -[NSArray containsObject:]). Viewers are now compared by address.
 - ΔT1: **automatic rigid alignment** of the post series onto the pre series [on] and **shading
   correction** [on]. First test case: with the head moved between the scans, the sulci and the
   head edges lit up as "enhancing" (the slab geometry was identical, so the geometry check passed).

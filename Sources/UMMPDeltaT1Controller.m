@@ -29,6 +29,16 @@ static NSString *const UMMPBurdenPrefix = @"FTB";
 
 #pragma mark - Geometry helpers
 
+// The viewer at this address if it is still open, else nil. Compares addresses only: a stored
+// (non-retained) pointer to a closed viewer must never receive a message.
+static ViewerController *UMMPOpenViewer(void *address)
+{
+    if (!address) return nil;
+    for (ViewerController *v in [ViewerController getDisplayed2DViewers])
+        if ((void *)v == address) return v;
+    return nil;
+}
+
 // Same matrix, slices, position and orientation (within half a pixel). nil, or what differs.
 static NSString *UMMPGeometryMismatch(ViewerController *a, ViewerController *b)
 {
@@ -507,13 +517,13 @@ static BOOL UMMPTitleContains(ViewerController *v, NSString *text)
         NSString *unique = title;
         for (int k = 2; [_prePopup itemWithTitle:unique]; k++) unique = [NSString stringWithFormat:@"%@ (%d)", title, k];
         for (NSPopUpButton *p in @[_prePopup, _postPopup, _dt1Popup, _mapPopup]) [p addItemWithTitle:unique];
-        [_viewers addObject:[NSValue valueWithNonretainedObject:v]];
+        [_viewers addObject:[NSValue valueWithPointer:v]];
     }
     NSInteger n = (NSInteger)[_viewers count];
     // Defaults: ΔT1 map = the last one made (or any viewer named ΔT1); perfusion map = sRCBV, else rCBV.
     NSInteger dt1Guess = -1, mapGuess = -1, srcbvGuess = -1;
     for (NSInteger i = 0; i < n; i++) {
-        ViewerController *v = [[_viewers objectAtIndex:i] nonretainedObjectValue];
+        ViewerController *v = (ViewerController *)[[_viewers objectAtIndex:i] pointerValue];
         if (v == _lastCreated || UMMPTitleContains(v, @"ΔT1")) dt1Guess = (v == _lastCreated || dt1Guess < 0) ? i : dt1Guess;
         if (UMMPTitleContains(v, @"sRCBV")) srcbvGuess = i;
         else if (UMMPTitleContains(v, @"rCBV")) mapGuess = i;
@@ -530,7 +540,7 @@ static BOOL UMMPTitleContains(ViewerController *v, NSString *text)
 {
     NSInteger index = -1;
     for (NSInteger i = 0; i < (NSInteger)[_viewers count]; i++)
-        if ([[_viewers objectAtIndex:i] nonretainedObjectValue] == v) index = i;
+        if ([[_viewers objectAtIndex:i] pointerValue] == (void *)v) index = i;
     if (index < 0) index = fallback;
     if (index >= 0 && index < [popup numberOfItems]) [popup selectItemAtIndex:index];
 }
@@ -539,19 +549,20 @@ static BOOL UMMPTitleContains(ViewerController *v, NSString *text)
 {
     NSInteger i = [popup indexOfSelectedItem];
     if (i < 0 || i >= (NSInteger)[_viewers count]) return nil;
-    ViewerController *v = [[_viewers objectAtIndex:i] nonretainedObjectValue];
-    return [[ViewerController getDisplayed2DViewers] containsObject:v] ? v : nil;
+    return UMMPOpenViewer([[_viewers objectAtIndex:i] pointerValue]);
 }
 
 - (void)viewerWillClose:(NSNotification *)note
 {
-    id v = [note object];
-    if (v == _lastCreated) _lastCreated = nil;
-    if (v == _enhancingViewer) { _enhancingViewer = nil; [_enhancing release]; _enhancing = nil; }
-    for (NSValue *x in _viewers)
-        if ([x nonretainedObjectValue] == v) {
+    void *v = (void *)[note object];
+    if (v == (void *)_lastCreated) _lastCreated = nil;
+    if (v == (void *)_enhancingViewer) { _enhancingViewer = nil; [_enhancing release]; _enhancing = nil; }
+    // Forget the closing viewer now (it is freed before the refresh below runs), keeping the
+    // popups in the same order as the list.
+    for (NSUInteger i = 0; i < [_viewers count]; i++)
+        if ([[_viewers objectAtIndex:i] pointerValue] == v) {
+            [_viewers replaceObjectAtIndex:i withObject:[NSValue valueWithPointer:NULL]];
             dispatch_async(dispatch_get_main_queue(), ^{ [self refreshViewers:nil]; });
-            break;
         }
 }
 
@@ -626,7 +637,7 @@ static BOOL UMMPTitleContains(ViewerController *v, NSString *text)
 
 - (void)finishDeltaT1:(float *)d count:(long)n pre:(ViewerController *)pre steps:(NSString *)steps
 {
-    if (![[ViewerController getDisplayed2DViewers] containsObject:pre]) {
+    if (!UMMPOpenViewer(pre)) {
         free(d);
         [_createResult setStringValue:@"The pre-contrast viewer was closed: no ΔT1 map."];
         return;
