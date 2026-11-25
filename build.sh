@@ -87,6 +87,7 @@ SOURCES=(
   Sources/UMMPViewerList.m
   Sources/UMMPDSCEngine.m
   Sources/UMMPDSCToolsController.m
+  Sources/UMMPDeltaT1Controller.m
   Sources/UMMPCurvesController.m
   Sources/UMMPerfusionFilter.m
   GraphKitShim/GraphKitShim.m

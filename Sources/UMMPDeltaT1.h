@@ -470,4 +470,73 @@ static inline int UMMPDT1Pipeline(const float *pre, const float *post, long nx, 
     return ok;
 }
 
+// ---- Sampling another series (e.g. the rCBV map) at points in scanner coordinates ----
+
+// One slice of a stack: origin of pixel (0,0) and row/column directions (unit vectors, patient
+// coordinates in mm), pixel size, half the slab thickness it represents, and its pixels.
+typedef struct {
+    double o[3], row[3], col[3], normal[3];
+    double sx, sy, halfThickness;
+    long w, h;
+    const float *img;
+} UMMPDT1Slice;
+
+static inline void UMMPDT1SliceSetNormal(UMMPDT1Slice *s)
+{
+    s->normal[0] = s->row[1] * s->col[2] - s->row[2] * s->col[1];
+    s->normal[1] = s->row[2] * s->col[0] - s->row[0] * s->col[2];
+    s->normal[2] = s->row[0] * s->col[1] - s->row[1] * s->col[0];
+    double l = sqrt(s->normal[0] * s->normal[0] + s->normal[1] * s->normal[1] + s->normal[2] * s->normal[2]);
+    if (l > 0) for (int k = 0; k < 3; k++) s->normal[k] /= l;
+}
+
+// Value of the stack at point p (mm): the nearest slice along its normal, if p lies within its
+// slab (|distance| ≤ halfThickness), then bilinear in-plane — or the nearest pixel when one of
+// the four neighbours is not a computed value (≤ 0 or not finite; maps mark those −1).
+// NAN when p is outside the stack, between slices with a gap, or on a pixel without a value.
+static inline float UMMPDT1SampleStack(const UMMPDT1Slice *slices, int n, const double p[3])
+{
+    int best = -1;
+    double bestDist = 1e30;
+    for (int k = 0; k < n; k++) {
+        const UMMPDT1Slice *s = slices + k;
+        double d = (p[0] - s->o[0]) * s->normal[0] + (p[1] - s->o[1]) * s->normal[1] + (p[2] - s->o[2]) * s->normal[2];
+        if (fabs(d) < bestDist) { bestDist = fabs(d); best = k; }
+    }
+    if (best < 0) return NAN;
+    const UMMPDT1Slice *s = slices + best;
+    if (bestDist > s->halfThickness) return NAN;
+    double v[3] = {p[0] - s->o[0], p[1] - s->o[1], p[2] - s->o[2]};
+    double x = (v[0] * s->row[0] + v[1] * s->row[1] + v[2] * s->row[2]) / s->sx;
+    double y = (v[0] * s->col[0] + v[1] * s->col[1] + v[2] * s->col[2]) / s->sy;
+    if (x < -0.5 || y < -0.5 || x > s->w - 0.5 || y > s->h - 0.5) return NAN;
+    long x0 = (long)floor(x), y0 = (long)floor(y);
+    double fx = x - x0, fy = y - y0;
+    float q[4]; int good = 1;
+    for (int k = 0; k < 4; k++) {
+        long xx = x0 + (k & 1), yy = y0 + (k >> 1);
+        if (xx < 0) xx = 0;
+        if (yy < 0) yy = 0;
+        if (xx > s->w - 1) xx = s->w - 1;
+        if (yy > s->h - 1) yy = s->h - 1;
+        q[k] = s->img[yy * s->w + xx];
+        if (!(isfinite(q[k]) && q[k] > 0)) good = 0;
+    }
+    if (good)
+        return (float)((q[0] * (1 - fx) + q[1] * fx) * (1 - fy) + (q[2] * (1 - fx) + q[3] * fx) * fy);
+    long xn = lround(x), yn = lround(y);
+    if (xn < 0) xn = 0;
+    if (yn < 0) yn = 0;
+    if (xn > s->w - 1) xn = s->w - 1;
+    if (yn > s->h - 1) yn = s->h - 1;
+    float nv = s->img[yn * s->w + xn];
+    return (isfinite(nv) && nv > 0) ? nv : NAN;
+}
+
+// Fractional tumour burden classes of one value: 0 low (< low), 1 intermediate, 2 high (≥ high).
+static inline int UMMPDT1BurdenClass(float v, double low, double high)
+{
+    return (v < low) ? 0 : (v >= high ? 2 : 1);
+}
+
 #endif

@@ -60,6 +60,28 @@ int main(void)
 
     float zero[1000] = {0};
     check(!UMMPDT1Compute(zero, zero, dt2, 1000, 0.10, NULL), "empty series refused");
+
+    // Sampling an axial "rCBV" stack (2 × 2 mm pixels, 5 mm slices with 1 mm gap) at scanner points.
+    {
+        enum { W = 20, H = 20, S = 4 };
+        static float img[S][W * H];
+        UMMPDT1Slice st[S];
+        for (int k = 0; k < S; k++) {
+            for (int i = 0; i < W * H; i++) img[k][i] = (float)(1 + k);      // slice k holds k+1
+            img[k][5 * W + 5] = -1.0f;                                       // one pixel not computed
+            UMMPDT1Slice sl = {{-20, -20, 6.0 * k}, {1, 0, 0}, {0, 1, 0}, {0, 0, 0}, 2, 2, 2.5, W, H, img[k]};
+            UMMPDT1SliceSetNormal(&sl);
+            st[k] = sl;
+        }
+        double p1[3] = {0, 0, 12.4}, p2[3] = {0, 0, 15.0}, p3[3] = {100, 0, 6}, p4[3] = {-10, -10, 0}, p5[3] = {-8.6, -9.6, 0};
+        check(UMMPDT1SampleStack(st, S, p1) == 3.0f, "point in slice 3 reads its value");
+        check(isnan(UMMPDT1SampleStack(st, S, p2)), "point in the gap between slices: no value");
+        check(isnan(UMMPDT1SampleStack(st, S, p3)), "point outside the field of view: no value");
+        check(isnan(UMMPDT1SampleStack(st, S, p4)), "pixel marked −1: no value");
+        check(UMMPDT1SampleStack(st, S, p5) == 1.0f, "next to a −1 pixel: nearest computed pixel");
+        check(UMMPDT1BurdenClass(0.5f, 1.0, 1.75) == 0 && UMMPDT1BurdenClass(1.2f, 1.0, 1.75) == 1 &&
+              UMMPDT1BurdenClass(1.75f, 1.0, 1.75) == 2, "burden classes");
+    }
     printf("%s\n", failures ? "FAILED" : "all checks passed");
     return failures != 0;
 }

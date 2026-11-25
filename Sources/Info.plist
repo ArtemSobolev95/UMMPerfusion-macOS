@@ -27,6 +27,7 @@
 		<string>UMMPerfusion</string>
 		<string>UMMPerfusion DSC Tools</string>
 		<string>UMMPerfusion Time Curves</string>
+		<string>UMMPerfusion ΔT1 &amp; Tumour Burden</string>
 	</array>
 	<key>NSPrincipalClass</key>
 	<string>UMMPerfusionFilter</string>

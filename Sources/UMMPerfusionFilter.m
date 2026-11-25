@@ -13,6 +13,7 @@
 #import "UMMPUserDefaults.h"
 #import "UMMPDSCToolsController.h"
 #import "UMMPCurvesController.h"
+#import "UMMPDeltaT1Controller.h"
 
 @implementation UMMPerfusionFilter
 
@@ -27,6 +28,10 @@
     // IsiX port: second menu item, works on any viewer (maps or the 4D series)
     if ([menuName isEqualToString:@"UMMPerfusion Time Curves"]) {
         [[UMMPCurvesController sharedController] showForViewer:viewerController];
+        return 0;
+    }
+    if ([menuName isEqualToString:@"UMMPerfusion \u0394T1 & Tumour Burden"]) {   // \u0394 = Greek capital delta
+        [[UMMPDeltaT1Controller sharedController] showWithFilter:self];
         return 0;
     }
     if ([menuName isEqualToString:@"UMMPerfusion DSC Tools"]) {
