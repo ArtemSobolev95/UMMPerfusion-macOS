@@ -111,6 +111,25 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   not run since the port (see TESTING.md).
 - Code clean-up of the original (dead shuttle-mode and 32-bit code, manual memory management).
 
+## 1.5.3.2-port.8 (not yet built)
+
+- **Standardised rCBV (sRCBV)**: rCBV on one scale for all patients and visits without a reference
+  ROI. Histogram standardisation of Nyúl & Udupa as applied to rCBV by Bedekar, Jensen & Schmainda
+  (MRM 2010;64:907): 11 landmarks (1st percentile, deciles, 99.8th percentile) of the computed
+  pixels of the whole map; piecewise linear mapping onto a standard scale 0–50 000 learnt from
+  calibration maps; values above the 99.8th percentile set to the maximum (vessels). Displayed
+  ÷ the mean standardised NAWM of the calibration cases that have an ROI named "NAWM"/"ref"
+  (else ÷ the standard median), so 1 ≈ NAWM. Same result from a blood-volume map and from the
+  same map ÷ NAWM.
+- The calibration is the site's own (`Sources/UMMPStandardize.h`, `Sources/UMMPSRCBV.h`): the
+  values are **not** on the IB Neuro scale (its calibration is not published) and published
+  sRCBV thresholds do not transfer. Use one calibration per DSC protocol; ≥ 10 cases advised.
+- DSC Tools: new section "Standardised rCBV" — Create sRCBV Map, Add Map to Calibration,
+  Remove Last Case, Reset, Export / Import Calibration (a .plist to share with colleagues on the
+  same protocol). Option: create an sRCBV map automatically after Fast Deconvolution when a
+  calibration exists [on].
+- `Tests/test_standardize.c`: checks of the maths on synthetic maps (plain C, runs anywhere).
+
 ## 1.5.3.2-port.7
 
 - New UMMPerfusion toolbar icon: a DSC perfusion map with "DSC", rounded corners.

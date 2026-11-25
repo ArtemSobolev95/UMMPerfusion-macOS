@@ -27,6 +27,18 @@ report is in Console › Crash Reports (IsiX DICOM Viewer).
 - [ ] Find AIF Voxels on a slice through the MCA marks voxels in/next to arteries; "Auto AIF"
       appears in the panel's arterial ROI list.
 
+## C2. sRCBV (DSC Tools › Standardised rCBV)
+
+- [ ] `cc -O2 -o /tmp/t Tests/test_standardize.c -lm && /tmp/t` prints "all checks passed".
+- [ ] Without calibration: "Create sRCBV Map" says there is no calibration; Fast Deconvolution makes no sRCBV map.
+- [ ] Add Map to Calibration on a Volume of Distribution map with an ROI named NAWM: summary shows
+      1 case, "1 = mean NAWM of 1 case"; adding the same map again is refused; on the 4D series it is refused.
+- [ ] Create sRCBV Map on that map: new viewer "sRCBV (calibration 1 case, 1 = NAWM)", NAWM ROI mean ≈ 1, background −1.
+- [ ] Same result on the rCBV (÷ NAWM) map of the same case.
+- [ ] After Fast Deconvolution with a calibration: an sRCBV viewer appears next to the rCBV one.
+- [ ] Export, Reset, Import (Replace and Add to Current); Remove Last Case.
+- [ ] With ≥ 10 cases: NAWM sRCBV of new patients near 1 without drawing any ROI.
+
 ## D. Untouched parts (compiled, not run since the port)
 
 - [ ] DCE: one ROI-based fit (e.g. Modified Tofts) and one pixel-based map.

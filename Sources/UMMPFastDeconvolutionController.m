@@ -10,6 +10,7 @@
 #import "UMMPFastDeconvolutionController.h"
 #import "UMMPIsiXSupport.h"
 #import "UMMPDSCEngine.h"
+#import "UMMPSRCBV.h"
 #import "UMMPPanelController.h"
 #import "UMMPFastDeconvolution.h"
 #import "UMMPUserDefaults.h"
@@ -547,6 +548,18 @@
                 [rcbvViewer setWL:2.0 WW:4.0];   // rCBV 0-4
                 NSLog(@"UMMP DSC: %@", rcbvName);
             }
+        }
+    }
+    // IsiX port: standardised rCBV (no reference ROI), when an sRCBV calibration exists (DSC Tools).
+    if (ummpUseDSC && UMMPDCEOption(@"autoSRCBV", YES) && [UMMPSRCBVCases() count] > 0) {
+        NSString *srcbvError = nil;
+        ViewerController *srcbvViewer = UMMPSRCBVCreateMap(filter, vdViewer, &srcbvError);
+        if (srcbvViewer) {
+            NSString *srcbvName = [[[srcbvViewer pixList] objectAtIndex:0] generatedName];
+            [viewerList addViewer:srcbvViewer name:[NSString stringWithFormat:@"%@ - %@", name, srcbvName]];
+            [[NSNotificationCenter defaultCenter] addObserver:viewerList selector:@selector(removeViewer:) name:OsirixCloseViewerNotification object:srcbvViewer];
+        } else {
+            NSLog(@"UMMP sRCBV: not created: %@", srcbvError);
         }
     }
     NSDate *endTime = [NSDate date];

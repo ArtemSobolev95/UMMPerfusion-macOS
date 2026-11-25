@@ -4,6 +4,7 @@
 
 #import "UMMPDSCToolsController.h"
 #import "UMMPDSCEngine.h"
+#import "UMMPSRCBV.h"
 #import "UMMPerfusionFilter.h"
 #import "UMMPCurvesController.h"
 #import <OsiriXAPI/ViewerController.h>
@@ -90,7 +91,8 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
     NSTextField *_viewerLabel;
 
     NSButton *_maskBox, *_leakageBox, *_osvdBox, *_firstPassBox, *_clampBox;
-    NSButton *_dceWholeBox, *_dceSmoothBox, *_autoRCBVBox;
+    NSButton *_dceWholeBox, *_dceSmoothBox, *_autoRCBVBox, *_autoSRCBVBox;
+    NSTextField *_srcbvSummary;
     NSPopUpButton *_clutPopup;
     NSTextField *_maskField, *_oiField;
 
@@ -118,7 +120,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
 
 - (id)init
 {
-    NSPanel *panel = [[[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 680, 700)
+    NSPanel *panel = [[[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 680, 820)
                                                  styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                                            NSWindowStyleMaskResizable | NSWindowStyleMaskUtilityWindow
                                                    backing:NSBackingStoreBuffered defer:YES] autorelease];
@@ -132,7 +134,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
         [panel setBecomesKeyOnlyIfNeeded:NO];
         [panel setCollectionBehavior:NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace];
         [panel setReleasedWhenClosed:NO];
-        [panel setMinSize:NSMakeSize(600, 680)];
+        [panel setMinSize:NSMakeSize(600, 800)];
         [panel setDelegate:self];
         _rows = [[NSMutableArray alloc] init];
         _roiEntries = [[NSMutableArray alloc] init];
@@ -182,6 +184,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
     _dceWholeBox = UMMPCheckbox(@"Fit the whole slice within the brain mask, not only the tissue rectangle (slow)", self, @selector(optionChanged:));
     _dceSmoothBox = UMMPCheckbox(@"Smooth 3×3 before fitting (fewer outlier pixels, lower resolution)", self, @selector(optionChanged:));
     _autoRCBVBox = UMMPCheckbox(@"Create an rCBV map automatically (reference: ROI named “NAWM” or “ref”, else whole-brain median)", self, @selector(optionChanged:));
+    _autoSRCBVBox = UMMPCheckbox(@"Create an sRCBV map automatically when an sRCBV calibration exists (no reference ROI needed)", self, @selector(optionChanged:));
     _clutPopup = [[[NSPopUpButton alloc] init] autorelease];
     [_clutPopup setControlSize:NSControlSizeSmall];
     [_clutPopup setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
@@ -195,7 +198,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
         UMMPRow(@[_maskBox, _maskField, UMMPLabel(@"% of the bright end (99th percentile)")]),
         _leakageBox,
         UMMPRow(@[_osvdBox, _oiField]),
-        _firstPassBox, _clampBox, _autoRCBVBox, optionsNote, dceTitle, _dceWholeBox, _dceSmoothBox,
+        _firstPassBox, _clampBox, _autoRCBVBox, _autoSRCBVBox, optionsNote, dceTitle, _dceWholeBox, _dceSmoothBox,
         UMMPRow(@[UMMPLabel(@"Colour table for new maps (DSC and DCE):"), _clutPopup])]];
     [options setOrientation:NSUserInterfaceLayoutOrientationVertical];
     [options setAlignment:NSLayoutAttributeLeading];
@@ -263,11 +266,35 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
     [aif setSpacing:6];
     [[_aifResult widthAnchor] constraintEqualToAnchor:[aif widthAnchor]].active = YES;
 
+    // Standardised rCBV
+    _srcbvSummary = [NSTextField wrappingLabelWithString:@""];
+    [_srcbvSummary setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    [_srcbvSummary setSelectable:YES];
+    NSTextField *srcbvNote = [NSTextField wrappingLabelWithString:
+        @"Calibration: add the blood-volume (or rCBV) map of each patient scanned with the same DSC protocol, ideally "
+        @"with an ROI named “NAWM” (sets 1 = NAWM). Then any map can be standardised without an ROI. "
+        @"Site-specific scale: not the IB Neuro scale; thresholds from papers do not transfer."];
+    [srcbvNote setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    [srcbvNote setTextColor:[NSColor secondaryLabelColor]];
+    NSStackView *srcbvButtons1 = UMMPRow(@[UMMPButton(@"Create sRCBV Map", self, @selector(createSRCBVMap:)),
+                                           UMMPButton(@"Add Map to Calibration", self, @selector(addSRCBVCase:)),
+                                           UMMPButton(@"Remove Last Case", self, @selector(removeLastSRCBVCase:)),
+                                           UMMPButton(@"Reset…", self, @selector(resetSRCBV:))]);
+    NSStackView *srcbvButtons2 = UMMPRow(@[UMMPButton(@"Export Calibration…", self, @selector(exportSRCBV:)),
+                                           UMMPButton(@"Import Calibration…", self, @selector(importSRCBV:))]);
+    NSStackView *srcbv = [NSStackView stackViewWithViews:@[_srcbvSummary, srcbvButtons1, srcbvButtons2, srcbvNote]];
+    [srcbv setOrientation:NSUserInterfaceLayoutOrientationVertical];
+    [srcbv setAlignment:NSLayoutAttributeLeading];
+    [srcbv setSpacing:6];
+    [[_srcbvSummary widthAnchor] constraintEqualToAnchor:[srcbv widthAnchor]].active = YES;
+    [[srcbvNote widthAnchor] constraintEqualToAnchor:[srcbv widthAnchor]].active = YES;
+
     NSBox *optionsBox = UMMPSection(@"Calculation options", options);
     NSBox *statsBox = UMMPSection(@"ROI statistics and normalisation (map viewer)", stats);
     NSBox *aifBox = UMMPSection(@"Arterial input function (4D series)", aif);
+    NSBox *srcbvBox = UMMPSection(@"Standardised rCBV (sRCBV, map viewer)", srcbv);
 
-    NSStackView *main = [NSStackView stackViewWithViews:@[viewerRow, optionsBox, statsBox, aifBox]];
+    NSStackView *main = [NSStackView stackViewWithViews:@[viewerRow, optionsBox, statsBox, srcbvBox, aifBox]];
     [main setOrientation:NSUserInterfaceLayoutOrientationVertical];
     [main setAlignment:NSLayoutAttributeLeading];
     [main setSpacing:10];
@@ -281,6 +308,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
         [[optionsBox widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
         [[statsBox widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
         [[aifBox widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
+        [[srcbvBox widthAnchor] constraintEqualToAnchor:[main widthAnchor]],
         [[viewerRow widthAnchor] constraintEqualToAnchor:[main widthAnchor]]]];
     [statsBox setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
 }
@@ -347,6 +375,9 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
     [_dceSmoothBox setState:[[d objectForKey:@"dceSmooth"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff];
     id autoRCBV = [d objectForKey:@"autoRCBV"];
     [_autoRCBVBox setState:(autoRCBV ? [autoRCBV boolValue] : YES) ? NSControlStateValueOn : NSControlStateValueOff];
+    id autoSRCBV = [d objectForKey:@"autoSRCBV"];
+    [_autoSRCBVBox setState:(autoSRCBV ? [autoSRCBV boolValue] : YES) ? NSControlStateValueOn : NSControlStateValueOff];
+    [_srcbvSummary setStringValue:UMMPSRCBVCalibrationSummary()];
     id clut = [d objectForKey:@"mapCLUT"];
     NSString *clutTitle = [clut isKindOfClass:[NSString class]] ? ([clut length] ? clut : @"None (grey)") : @"Rainbow2";
     if ([_clutPopup itemWithTitle:clutTitle]) [_clutPopup selectItemWithTitle:clutTitle];
@@ -371,6 +402,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
     [d setObject:@([_dceWholeBox state] == NSControlStateValueOn) forKey:@"dceWholeSlice"];
     [d setObject:@([_dceSmoothBox state] == NSControlStateValueOn) forKey:@"dceSmooth"];
     [d setObject:@([_autoRCBVBox state] == NSControlStateValueOn) forKey:@"autoRCBV"];
+    [d setObject:@([_autoSRCBVBox state] == NSControlStateValueOn) forKey:@"autoSRCBV"];
     NSString *clutTitle = [_clutPopup titleOfSelectedItem];
     [d setObject:([clutTitle hasPrefix:@"None"] ? @"" : clutTitle) forKey:@"mapCLUT"];
     [[NSUserDefaults standardUserDefaults] setPersistentDomain:d forName:@"com.osirix.UMMPerfusion.DSC"];
@@ -380,6 +412,142 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
 - (void)windowDidBecomeKey:(NSNotification *)note
 {
     [self loadSettings];
+}
+
+#pragma mark - Standardised rCBV
+
+- (void)showMessage:(NSString *)title text:(NSString *)text
+{
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    [alert setMessageText:title];
+    [alert setInformativeText:text ?: @""];
+    [alert beginSheetModalForWindow:[self window] completionHandler:nil];
+}
+
+// The viewer must be a map (one time frame), not the 4D DSC series.
+- (BOOL)requireMapViewer
+{
+    if (![self requireViewer]) return NO;
+    if ([_viewer maxMovieIndex] > 1) {
+        [self showMessage:@"Choose a map" text:@"The viewer shows a 4D series. Bring the blood-volume (Volume of Distribution) or rCBV map to the front and click “Use Frontmost Viewer”."];
+        return NO;
+    }
+    return YES;
+}
+
+- (NSString *)mapTitle
+{
+    NSString *t = [[[_viewer pixList] objectAtIndex:0] generatedName];
+    NSString *w = [[_viewer window] title];
+    if ([w length] && [t length]) return [NSString stringWithFormat:@"%@ — %@", w, t];
+    return [w length] ? w : ([t length] ? t : @"Map");
+}
+
+- (void)refreshSRCBVSummary
+{
+    [_srcbvSummary setStringValue:UMMPSRCBVCalibrationSummary()];
+}
+
+- (void)createSRCBVMap:(id)sender
+{
+    if (![self requireMapViewer] || !_filter) return;
+    NSString *error = nil;
+    if (!UMMPSRCBVCreateMap(_filter, _viewer, &error))
+        [self showMessage:@"No sRCBV map" text:error];
+}
+
+- (void)addSRCBVCase:(id)sender
+{
+    if (![self requireMapViewer]) return;
+    NSString *error = UMMPSRCBVAddCase(_viewer, nil, [self mapTitle]);
+    if (error) [self showMessage:@"Not added" text:error];
+    [self refreshSRCBVSummary];
+}
+
+- (void)removeLastSRCBVCase:(id)sender
+{
+    NSMutableArray *cases = [NSMutableArray arrayWithArray:UMMPSRCBVCases()];
+    if (![cases count]) { NSBeep(); return; }
+    NSLog(@"UMMP sRCBV: case removed (%@)", [[cases lastObject] objectForKey:@"title"]);
+    [cases removeLastObject];
+    UMMPSRCBVSaveCases(cases);
+    [self refreshSRCBVSummary];
+}
+
+- (void)resetSRCBV:(id)sender
+{
+    if (![UMMPSRCBVCases() count]) { NSBeep(); return; }
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    [alert setMessageText:@"Delete the sRCBV calibration?"];
+    [alert setInformativeText:@"All calibration cases are removed. Export the calibration first if you may need it again."];
+    [alert addButtonWithTitle:@"Delete"];
+    [alert addButtonWithTitle:@"Cancel"];
+    [alert beginSheetModalForWindow:[self window] completionHandler:^(NSModalResponse r) {
+        if (r != NSAlertFirstButtonReturn) return;
+        UMMPSRCBVSaveCases(@[]);
+        [self refreshSRCBVSummary];
+    }];
+}
+
+- (void)exportSRCBV:(id)sender
+{
+    NSArray *cases = UMMPSRCBVCases();
+    if (![cases count]) { NSBeep(); return; }
+    NSSavePanel *panel = [NSSavePanel savePanel];
+    [panel setNameFieldStringValue:@"UMMPerfusion sRCBV calibration.plist"];
+    [panel beginSheetModalForWindow:[self window] completionHandler:^(NSModalResponse result) {
+        if (result != NSModalResponseOK) return;
+        NSDictionary *file = @{@"format": @"UMMPerfusion sRCBV calibration", @"version": @1,
+                               @"landmarkPercentiles": @[@1, @10, @20, @30, @40, @50, @60, @70, @80, @90, @99.8],
+                               @"cases": cases};
+        NSError *err = nil;
+        NSData *data = [NSPropertyListSerialization dataWithPropertyList:file format:NSPropertyListXMLFormat_v1_0 options:0 error:&err];
+        if (!data || ![data writeToURL:[panel URL] options:NSDataWritingAtomic error:&err])
+            [self showMessage:@"Export failed" text:[err localizedDescription]];
+    }];
+}
+
+- (void)importSRCBV:(id)sender
+{
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    [panel setAllowsMultipleSelection:NO];
+    [panel beginSheetModalForWindow:[self window] completionHandler:^(NSModalResponse result) {
+        if (result != NSModalResponseOK) return;
+        NSData *data = [NSData dataWithContentsOfURL:[panel URL]];
+        id file = data ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : nil;
+        NSArray *imported = [file isKindOfClass:[NSDictionary class]] ? [file objectForKey:@"cases"] : nil;
+        NSMutableArray *valid = [NSMutableArray array];
+        for (id c in [imported isKindOfClass:[NSArray class]] ? imported : @[]) {
+            NSArray *lm = [c isKindOfClass:[NSDictionary class]] ? [c objectForKey:@"landmarks"] : nil;
+            if ([lm isKindOfClass:[NSArray class]] && [lm count] == UMMP_SRCBV_LANDMARKS) [valid addObject:c];
+        }
+        if (![valid count]) {
+            [self showMessage:@"Nothing imported" text:@"The file is not an UMMPerfusion sRCBV calibration, or it has no case."];
+            return;
+        }
+        // The sheet of the open panel must be gone before the next one.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSArray *current = UMMPSRCBVCases();
+            if (![current count]) {
+                UMMPSRCBVSaveCases(valid);
+                [self refreshSRCBVSummary];
+                return;
+            }
+            NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+            [alert setMessageText:[NSString stringWithFormat:@"Import %lu case%@", (unsigned long)[valid count], [valid count] == 1 ? @"" : @"s"]];
+            [alert setInformativeText:[NSString stringWithFormat:@"The current calibration has %lu case%@.",
+                                       (unsigned long)[current count], [current count] == 1 ? @"" : @"s"]];
+            [alert addButtonWithTitle:@"Replace"];
+            [alert addButtonWithTitle:@"Add to Current"];
+            [alert addButtonWithTitle:@"Cancel"];
+            [alert beginSheetModalForWindow:[self window] completionHandler:^(NSModalResponse r) {
+                if (r == NSAlertFirstButtonReturn) UMMPSRCBVSaveCases(valid);
+                else if (r == NSAlertSecondButtonReturn) UMMPSRCBVSaveCases([current arrayByAddingObjectsFromArray:valid]);
+                else return;
+                [self refreshSRCBVSummary];
+            }];
+        });
+    }];
 }
 
 #pragma mark - ROIs
