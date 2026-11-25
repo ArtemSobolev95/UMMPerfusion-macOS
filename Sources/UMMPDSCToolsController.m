@@ -541,6 +541,10 @@ static float *UMMPVolumeCopy(ViewerController *v, long *count)
         return;
     }
     if (!_filter) return;
+    // IsiX/Horos load a series in the background: wait until every slice is in memory, or the
+    // copies below read (and the new viewer later shows) the file contents instead of ours.
+    [pre checkEverythingLoaded];
+    [post checkEverythingLoaded];
     NSString *mismatch = UMMPGeometryMismatch(pre, post);
     if (mismatch) {
         [self showMessage:@"The two series do not overlap"
@@ -561,12 +565,27 @@ static float *UMMPVolumeCopy(ViewerController *v, long *count)
     }
     ViewerController *out = [_filter duplicateViewer:pre deleteROIs:YES];
     if (!out) { free(d); return; }
-    long offset = 0;
+    [out checkEverythingLoaded];
+    long offset = 0, written = 0;
+    double sumD = 0;
+    for (long i = 0; i < n; i++) sumD += d[i];
     for (DCMPix *pix in [out pixList]) {
         long size = (long)[pix pwidth] * [pix pheight];
         float *img = [pix fImage];
-        if (img) memcpy(img, d + offset, sizeof(float) * (size_t)size);
+        if (img) { memcpy(img, d + offset, sizeof(float) * (size_t)size); written++; }
         offset += size;
+    }
+    {   // check that the viewer really holds the ΔT1 values (diagnostics in Console, filter "UMMP")
+        NSArray *pl = [out pixList];
+        DCMPix *mid = [pl objectAtIndex:[pl count] / 2];
+        long size = (long)[mid pwidth] * [mid pheight], off = 0;
+        for (NSUInteger s = 0; s < [pl count] / 2; s++) off += (long)[[pl objectAtIndex:s] pwidth] * [[pl objectAtIndex:s] pheight];
+        double sumView = 0, sumCalc = 0;
+        float *img = [mid fImage];
+        for (long i = 0; img && i < size; i++) { sumView += img[i]; sumCalc += d[off + i]; }
+        NSLog(@"UMMP ΔT1: %ld of %lu slices written; mean ΔT1 %.4g; middle slice: viewer sum %.6g, computed sum %.6g; pre loaded %d, post loaded %d, new viewer loaded %d",
+              written, (unsigned long)[pl count], n ? sumD / n : 0.0, sumView, sumCalc,
+              (int)[pre isEverythingLoaded], (int)[post isEverythingLoaded], (int)[out isEverythingLoaded]);
     }
     NSString *name = @"ΔT1 (post ÷ median − pre ÷ median)";
     [[[out pixList] objectAtIndex:0] setGeneratedName:name];
@@ -605,8 +624,11 @@ static float *UMMPVolumeCopy(ViewerController *v, long *count)
             : [NSString stringWithFormat:@" No pixel above %g.", threshold];
     }
     free(d);
-    [out needsDisplayUpdate];
+    // Redraw from the new values: the copied slices keep the 8-bit display image of the T1 series.
+    for (DCMPix *pix in [out pixList]) [pix changeWLWW:0.25 :1.0];
     [out setWL:0.25 WW:1.0];
+    [out refresh];
+    [out needsDisplayUpdate];
     [_dt1Result setTextColor:[NSColor labelColor]];
     [_dt1Result setStringValue:[NSString stringWithFormat:@"ΔT1 map created: medians pre %.4g, post %.4g; head mask %ld pixels (pre > %.4g).%@",
                                 r.medianPre, r.medianPost, r.maskPixels, r.maskThreshold, maskText]];
