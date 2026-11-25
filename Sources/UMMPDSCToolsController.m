@@ -97,7 +97,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
     NSPopUpButton *_preT1Popup, *_postT1Popup;
     NSMutableArray *_t1Viewers;           // NSValue (non-retained ViewerController), same order as the popups
     NSTextField *_dt1ThresholdField, *_dt1Result;
-    NSButton *_dt1MaskBox;
+    NSButton *_dt1MaskBox, *_dt1RegisterBox, *_dt1ShadingBox, *_dt1CreateButton;
     NSPopUpButton *_clutPopup;
     NSTextField *_maskField, *_oiField;
 
@@ -125,7 +125,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
 
 - (id)init
 {
-    NSPanel *panel = [[[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 680, 960)
+    NSPanel *panel = [[[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 720, 990)
                                                  styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                                            NSWindowStyleMaskResizable | NSWindowStyleMaskUtilityWindow
                                                    backing:NSBackingStoreBuffered defer:YES] autorelease];
@@ -139,7 +139,7 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
         [panel setBecomesKeyOnlyIfNeeded:NO];
         [panel setCollectionBehavior:NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace];
         [panel setReleasedWhenClosed:NO];
-        [panel setMinSize:NSMakeSize(600, 900)];
+        [panel setMinSize:NSMakeSize(700, 930)];
         [panel setDelegate:self];
         _rows = [[NSMutableArray alloc] init];
         _roiEntries = [[NSMutableArray alloc] init];
@@ -316,9 +316,14 @@ static NSBox *UMMPSection(NSString *title, NSView *content)
     [_dt1Result setSelectable:YES];
     NSStackView *dt1Row1 = UMMPRow(@[UMMPLabel(@"Pre:"), _preT1Popup, UMMPLabel(@"Post:"), _postT1Popup,
                                      UMMPButton(@"Refresh", self, @selector(refreshT1Viewers:))]);
-    NSStackView *dt1Row2 = UMMPRow(@[_dt1MaskBox, _dt1ThresholdField, UMMPLabel(@"as ROI “Enhancing (ΔT1)”"),
-                                     UMMPButton(@"Create ΔT1 Map", self, @selector(createDeltaT1Map:))]);
-    NSStackView *dt1 = [NSStackView stackViewWithViews:@[dt1Row1, dt1Row2, _dt1Result]];
+    _dt1CreateButton = UMMPButton(@"Create ΔT1 Map", self, @selector(createDeltaT1Map:));
+    NSStackView *dt1Row2 = UMMPRow(@[_dt1MaskBox, _dt1ThresholdField, UMMPLabel(@"as ROI “Enhancing (ΔT1)”"), _dt1CreateButton]);
+    _dt1RegisterBox = UMMPCheckbox(@"Align post onto pre (rigid: head movement between the scans)", self, NULL);
+    _dt1ShadingBox = UMMPCheckbox(@"Correct slow intensity differences (coil shading)", self, NULL);
+    [_dt1RegisterBox setState:NSControlStateValueOn];
+    [_dt1ShadingBox setState:NSControlStateValueOn];
+    NSStackView *dt1Row3 = UMMPRow(@[_dt1RegisterBox, _dt1ShadingBox]);
+    NSStackView *dt1 = [NSStackView stackViewWithViews:@[dt1Row1, dt1Row3, dt1Row2, _dt1Result]];
     [dt1 setOrientation:NSUserInterfaceLayoutOrientationVertical];
     [dt1 setAlignment:NSLayoutAttributeLeading];
     [dt1 setSpacing:6];
@@ -609,13 +614,60 @@ static float *UMMPVolumeCopy(ViewerController *v, long *count)
     }
     long n = 0, m = 0;
     float *a = UMMPVolumeCopy(pre, &n), *b = UMMPVolumeCopy(post, &m);
-    float *d = (float *)malloc(sizeof(float) * (size_t)(n > 0 ? n : 1));
-    UMMPDT1Result r;
-    int ok = (n == m) && UMMPDT1Compute(a, b, d, n, UMMPDCEMaskFraction(), &r);
-    free(a); free(b);
-    if (!ok) {
+    NSArray *prePix = [pre pixList];
+    DCMPix *p0 = [prePix objectAtIndex:0];
+    long nx = [p0 pwidth], ny = [p0 pheight], nz = (long)[prePix count];
+    double dx = [p0 pixelSpacingX] > 0 ? [p0 pixelSpacingX] : 1.0, dy = [p0 pixelSpacingY] > 0 ? [p0 pixelSpacingY] : 1.0;
+    double dz = 1.0;
+    if (nz > 1) {
+        DCMPix *p1 = [prePix objectAtIndex:1];
+        dz = sqrt(pow([p1 originX] - [p0 originX], 2) + pow([p1 originY] - [p0 originY], 2) + pow([p1 originZ] - [p0 originZ], 2));
+        if (!(dz > 0)) dz = [p0 sliceThickness] > 0 ? [p0 sliceThickness] : 1.0;
+    }
+    BOOL doRegister = ([_dt1RegisterBox state] == NSControlStateValueOn);
+    BOOL doShading = ([_dt1ShadingBox state] == NSControlStateValueOn);
+    double maskFraction = UMMPDCEMaskFraction();
+    if (n != m || n != nx * ny * nz) {
+        free(a); free(b);
+        [self showMessage:@"No ΔT1 map" text:@"The two series do not have the same number of pixels."];
+        return;
+    }
+
+    // The alignment takes a few seconds: computed in the background, the viewer is made after.
+    [_dt1CreateButton setEnabled:NO];
+    [_dt1Result setTextColor:[NSColor labelColor]];
+    [_dt1Result setStringValue:doRegister ? @"Aligning post onto pre and computing ΔT1…" : @"Computing ΔT1…"];
+    NSDate *startTime = [NSDate date];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        float *d = (float *)malloc(sizeof(float) * (size_t)(n > 0 ? n : 1));
+        UMMPDT1Report rep;
+        memset(&rep, 0, sizeof(rep));
+        int ok = d && UMMPDT1Pipeline(a, b, nx, ny, nz, dx, dy, dz, doRegister, doShading, maskFraction, d, &rep);
+        free(a); free(b);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [_dt1CreateButton setEnabled:YES];
+            if (!ok) {
+                free(d);
+                [_dt1Result setStringValue:@"No ΔT1 map."];
+                [self showMessage:@"No ΔT1 map" text:@"The pre series has too few pixels above the head-mask threshold, or no signal."];
+                return;
+            }
+            NSString *steps = [NSString stringWithFormat:@"%@%@ (%.0f s)",
+                doRegister ? [NSString stringWithFormat:@"post aligned: rotation %.1f° %.1f° %.1f°, shift %.1f %.1f %.1f mm, local r %.2f; ",
+                              rep.transform.rx * 180 / M_PI, rep.transform.ry * 180 / M_PI, rep.transform.rz * 180 / M_PI,
+                              rep.transform.tx, rep.transform.ty, rep.transform.tz, rep.correlation] : @"not aligned; ",
+                doShading ? [NSString stringWithFormat:@"shading corrected (%ld blocks)", rep.shadingBlocks] : @"no shading correction",
+                -[startTime timeIntervalSinceNow]];
+            [self finishDeltaT1:d count:n pre:pre normalisation:rep.normalisation steps:steps];
+        });
+    });
+}
+
+- (void)finishDeltaT1:(float *)d count:(long)n pre:(ViewerController *)pre normalisation:(UMMPDT1Result)r steps:(NSString *)steps
+{
+    if (![[ViewerController getDisplayed2DViewers] containsObject:pre]) {
         free(d);
-        [self showMessage:@"No ΔT1 map" text:@"The pre series has too few pixels above the head-mask threshold, or no signal."];
+        [_dt1Result setStringValue:@"The pre-contrast viewer was closed: no ΔT1 map."];
         return;
     }
     // A new viewer built from copies of the pre series' slices, each pointing into our own ΔT1
@@ -673,8 +725,8 @@ static float *UMMPVolumeCopy(ViewerController *v, long *count)
     [out setWL:0.25 WW:1.0];
     [out refresh];
     [out needsDisplayUpdate];
-    NSString *summary = [NSString stringWithFormat:@"ΔT1 map created: medians pre %.4g, post %.4g; head mask %ld pixels (pre > %.4g).%@",
-                         r.medianPre, r.medianPost, r.maskPixels, r.maskThreshold, maskText];
+    NSString *summary = [NSString stringWithFormat:@"ΔT1 map created: %@. Medians pre %.4g, post %.4g; head mask %ld pixels (pre > %.4g).%@",
+                         steps, r.medianPre, r.medianPost, r.maskPixels, r.maskThreshold, maskText];
     [_dt1Result setTextColor:[NSColor labelColor]];
     [_dt1Result setStringValue:[NSString stringWithFormat:@"%@ [check: %@]", summary, check]];
     NSLog(@"UMMP ΔT1: %@", [_dt1Result stringValue]);

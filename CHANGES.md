@@ -143,6 +143,19 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   the call returns). The ΔT1 viewer is now built with `+[ViewerController newWindow:::]` from copies
   of the pre series' slices pointing into the plugin's own ΔT1 volume. The result line ends with a
   check that the viewer holds the computed values.
+- ΔT1: **automatic rigid alignment** of the post series onto the pre series [on] and **shading
+  correction** [on]. First test case: with the head moved between the scans, the sulci and the
+  head edges lit up as "enhancing" (the slab geometry was identical, so the geometry check passed).
+  Alignment: 6 parameters (3 rotations about the volume centre, 3 shifts), mean local correlation
+  in 24 mm blocks (insensitive to coil shading), pattern search at ≈ 6, 3 and 1.5 mm; post
+  resampled trilinearly onto the pre grid; the pre series gets the matching mean interpolation
+  blur ([1/12, 5/6, 1/12] per axis) so thin sulci do not appear in the difference. Shading: the
+  median post/pre ratio of the head voxels of 16 mm blocks, gaps filled from neighbours, smoothed
+  3×3×3 blocks, interpolated, post divided by it (a compact lesion is a minority of its block).
+  Runs in the background; the result line gives the rotation, shift and correlation found.
+  Synthetic head (`Tests/test_deltat1_registration.c`: 3°/−4°/2° and 5/−4/3 mm motion, opposite
+  shading): brain voxels falsely above 0.2 29 % → 1.8 %, sulci +0.51 → +0.08, lesion core 100 %,
+  motion found within 0.06° and 0.01 mm.
 
 ## 1.5.3.2-port.7
 
