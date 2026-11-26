@@ -9,6 +9,7 @@
 #import "UMMPDeltaT1Controller.h"
 #import "UMMPerfusionFilter.h"
 #import "UMMPCurvesController.h"
+#import "UMMPConcentration.h"
 #import <OsiriXAPI/ViewerController.h>
 #if __has_include(<OsiriXAPI/ViewerController+ROI.h>)   // IsiX; in Horos these are in ViewerController.h
 #import <OsiriXAPI/ViewerController+ROI.h>
@@ -37,6 +38,8 @@ static int UMMPCompareFloats(const void *a, const void *b)
 
     NSButton *_maskBox, *_leakageBox, *_osvdBox, *_firstPassBox, *_clampBox;
     NSButton *_dceWholeBox, *_dceSmoothBox, *_autoRCBVBox, *_autoSRCBVBox;
+    NSPopUpButton *_concPopup, *_t1MapPopup;
+    NSTextField *_t10BloodField, *_t10TissueField, *_r1Field, *_trField, *_flipField, *_concInfo;
     NSTextField *_srcbvSummary;
     NSPopUpButton *_clutPopup;
     NSTextField *_maskField, *_oiField;
@@ -65,7 +68,7 @@ static int UMMPCompareFloats(const void *a, const void *b)
 
 - (id)init
 {
-    NSPanel *panel = [[[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 680, 820)
+    NSPanel *panel = [[[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 700, 900)
                                                  styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                                            NSWindowStyleMaskResizable | NSWindowStyleMaskUtilityWindow
                                                    backing:NSBackingStoreBuffered defer:YES] autorelease];
@@ -79,7 +82,7 @@ static int UMMPCompareFloats(const void *a, const void *b)
         [panel setBecomesKeyOnlyIfNeeded:NO];
         [panel setCollectionBehavior:NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace];
         [panel setReleasedWhenClosed:NO];
-        [panel setMinSize:NSMakeSize(600, 800)];
+        [panel setMinSize:NSMakeSize(640, 820)];
         [panel setDelegate:self];
         _rows = [[NSMutableArray alloc] init];
         _roiEntries = [[NSMutableArray alloc] init];
@@ -137,6 +140,38 @@ static int UMMPCompareFloats(const void *a, const void *b)
     [_clutPopup addItemsWithTitles:@[@"Rainbow2", @"Rainbow", @"Rainbow3", @"Perfusion", @"Jet", @"PPU Viridis", @"PPU Inferno", @"HotIron", @"None (grey)"]];
     [_clutPopup setTarget:self];
     [_clutPopup setAction:@selector(optionChanged:)];
+    // DCE: signal to concentration
+    _concPopup = [[[NSPopUpButton alloc] init] autorelease];
+    [_concPopup setControlSize:NSControlSizeSmall];
+    [_concPopup setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    [_concPopup addItemsWithTitles:@[@"Off: fit signal enhancement (original plugin)", @"Concentration, fixed pre-contrast T1",
+                                     @"Concentration, T1 map (per pixel)"]];
+    [_concPopup setTarget:self];
+    [_concPopup setAction:@selector(optionChanged:)];
+    _t1MapPopup = [[[NSPopUpButton alloc] init] autorelease];
+    [_t1MapPopup setControlSize:NSControlSizeSmall];
+    [_t1MapPopup setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    [_t1MapPopup setTarget:self];
+    [_t1MapPopup setAction:@selector(optionChanged:)];
+    [[_t1MapPopup widthAnchor] constraintLessThanOrEqualToConstant:260].active = YES;
+    _t10BloodField = UMMPNumberField(@"", 44);
+    _t10TissueField = UMMPNumberField(@"", 44);
+    _r1Field = UMMPNumberField(@"", 44);
+    _trField = UMMPNumberField(@"", 44);
+    _flipField = UMMPNumberField(@"", 38);
+    for (NSTextField *f in @[_t10BloodField, _t10TissueField, _r1Field, _trField, _flipField]) {
+        [f setTarget:self];
+        [f setAction:@selector(optionChanged:)];
+    }
+    [_r1Field setPlaceholderString:@"4.5"];
+    _concInfo = UMMPLabel(@"");
+    [_concInfo setTextColor:[NSColor secondaryLabelColor]];
+    [_concInfo setLineBreakMode:NSLineBreakByWordWrapping];
+    [_concInfo setMaximumNumberOfLines:3];
+    [_concInfo setPreferredMaxLayoutWidth:620];
+    NSStackView *concRow1 = UMMPRow(@[UMMPLabel(@"Fit input:"), _concPopup, UMMPLabel(@"T1 map:"), _t1MapPopup]);
+    NSStackView *concRow2 = UMMPRow(@[UMMPLabel(@"Pre-contrast T1 (s): blood"), _t10BloodField, UMMPLabel(@"tissue"), _t10TissueField,
+                                      UMMPLabel(@"  r1 (/mM/s)"), _r1Field, UMMPLabel(@"  TR (ms)"), _trField, UMMPLabel(@"flip (°)"), _flipField]);
     NSTextField *dceTitle = UMMPLabel(@"DCE pixel maps (compartment models, Modified Tofts):");
     [dceTitle setFont:[NSFont boldSystemFontOfSize:[NSFont smallSystemFontSize]]];
     [optionsNote setTextColor:[NSColor secondaryLabelColor]];
@@ -144,7 +179,7 @@ static int UMMPCompareFloats(const void *a, const void *b)
         UMMPRow(@[_maskBox, _maskField, UMMPLabel(@"% of the bright end (99th percentile)")]),
         _leakageBox,
         UMMPRow(@[_osvdBox, _oiField]),
-        _firstPassBox, _clampBox, _autoRCBVBox, _autoSRCBVBox, optionsNote, dceTitle, _dceWholeBox, _dceSmoothBox,
+        _firstPassBox, _clampBox, _autoRCBVBox, _autoSRCBVBox, optionsNote, dceTitle, _dceWholeBox, _dceSmoothBox, concRow1, concRow2, _concInfo,
         UMMPRow(@[UMMPLabel(@"Colour table for new maps (DSC and DCE):"), _clutPopup])]];
     [options setOrientation:NSUserInterfaceLayoutOrientationVertical];
     [options setAlignment:NSLayoutAttributeLeading];
@@ -277,6 +312,7 @@ static int UMMPCompareFloats(const void *a, const void *b)
     [_rows removeAllObjects];
     [_table reloadData];
     [self refreshROIs:nil];
+    [self loadSettings];   // the DCE header values shown are those of this viewer
 }
 
 - (void)useFrontmostViewer:(id)sender
@@ -324,6 +360,7 @@ static int UMMPCompareFloats(const void *a, const void *b)
     NSDictionary *d = [[NSUserDefaults standardUserDefaults] persistentDomainForName:@"com.osirix.UMMPerfusion.DSC"];
     [_dceWholeBox setState:[[d objectForKey:@"dceWholeSlice"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff];
     [_dceSmoothBox setState:[[d objectForKey:@"dceSmooth"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff];
+    [self loadConcentrationSettings:d];
     id autoRCBV = [d objectForKey:@"autoRCBV"];
     [_autoRCBVBox setState:(autoRCBV ? [autoRCBV boolValue] : YES) ? NSControlStateValueOn : NSControlStateValueOff];
     id autoSRCBV = [d objectForKey:@"autoSRCBV"];
@@ -352,12 +389,76 @@ static int UMMPCompareFloats(const void *a, const void *b)
         [[NSUserDefaults standardUserDefaults] persistentDomainForName:@"com.osirix.UMMPerfusion.DSC"] ?: @{}];
     [d setObject:@([_dceWholeBox state] == NSControlStateValueOn) forKey:@"dceWholeSlice"];
     [d setObject:@([_dceSmoothBox state] == NSControlStateValueOn) forKey:@"dceSmooth"];
+    [d setObject:@([_concPopup indexOfSelectedItem]) forKey:@"dceConversion"];
+    NSString *mapTitle = [[_t1MapPopup selectedItem] representedObject];
+    if ([mapTitle length]) [d setObject:mapTitle forKey:@"dceT1MapTitle"]; else [d removeObjectForKey:@"dceT1MapTitle"];
+    NSDictionary *fields = @{@"dceT10Blood": _t10BloodField, @"dceT10Tissue": _t10TissueField, @"dceR1": _r1Field,
+                             @"dceTR": _trField, @"dceFlip": _flipField};
+    for (NSString *key in fields) {
+        NSString *text = [[[fields objectForKey:key] stringValue] stringByReplacingOccurrencesOfString:@"," withString:@"."];
+        double v = [text doubleValue];
+        if ([text length] && v > 0) [d setObject:@(v) forKey:key]; else [d removeObjectForKey:key];
+    }
     [d setObject:@([_autoRCBVBox state] == NSControlStateValueOn) forKey:@"autoRCBV"];
     [d setObject:@([_autoSRCBVBox state] == NSControlStateValueOn) forKey:@"autoSRCBV"];
     NSString *clutTitle = [_clutPopup titleOfSelectedItem];
     [d setObject:([clutTitle hasPrefix:@"None"] ? @"" : clutTitle) forKey:@"mapCLUT"];
     [[NSUserDefaults standardUserDefaults] setPersistentDomain:d forName:@"com.osirix.UMMPerfusion.DSC"];
     [self loadSettings];
+}
+
+// DCE concentration controls: stored values, the open viewers as T1 map candidates, header values.
+- (void)loadConcentrationSettings:(NSDictionary *)d
+{
+    NSInteger mode = [[d objectForKey:@"dceConversion"] integerValue];
+    if (mode < 0 || mode > 2) mode = 0;
+    [_concPopup selectItemAtIndex:mode];
+    NSString *mapTitle = [d objectForKey:@"dceT1MapTitle"];
+    [_t1MapPopup removeAllItems];
+    [_t1MapPopup addItemWithTitle:@"(choose an open T1 map)"];
+    [[_t1MapPopup lastItem] setRepresentedObject:@""];
+    BOOL found = NO;
+    for (ViewerController *v in [ViewerController getDisplayed2DViewers]) {
+        NSString *title = [[v window] title];
+        if (![title length] || [v maxMovieIndex] > 1 || [_t1MapPopup itemWithTitle:title]) continue;
+        [_t1MapPopup addItemWithTitle:title];
+        [[_t1MapPopup lastItem] setRepresentedObject:title];
+        if ([title isEqualToString:mapTitle]) { [_t1MapPopup selectItem:[_t1MapPopup lastItem]]; found = YES; }
+    }
+    if ([mapTitle length] && !found) {
+        [_t1MapPopup addItemWithTitle:[NSString stringWithFormat:@"%@ (not open)", mapTitle]];
+        [[_t1MapPopup lastItem] setRepresentedObject:mapTitle];
+        [_t1MapPopup selectItem:[_t1MapPopup lastItem]];
+    }
+    NSDictionary *fields = @{@"dceT10Blood": _t10BloodField, @"dceT10Tissue": _t10TissueField, @"dceR1": _r1Field,
+                             @"dceTR": _trField, @"dceFlip": _flipField};
+    for (NSString *key in fields) {
+        id v = [d objectForKey:key];
+        [[fields objectForKey:key] setStringValue:[v doubleValue] > 0 ? [NSString stringWithFormat:@"%g", [v doubleValue]] : @""];
+    }
+    double tr = NAN, flip = NAN, field = NAN;
+    ViewerController *dce = _viewer;
+    if (dce && [dce maxMovieIndex] <= 1) dce = nil;
+    if (dce) UMMPConcReadHeader(dce, &tr, &flip, &field);
+    double f = field > 0 ? field : 1.5;
+    [_t10BloodField setPlaceholderString:[NSString stringWithFormat:@"%.2f", UMMPDefaultBloodT10(f)]];
+    [_t10TissueField setPlaceholderString:[NSString stringWithFormat:@"%.2f", UMMPDefaultTissueT10(f)]];
+    [_trField setPlaceholderString:tr > 0 ? [NSString stringWithFormat:@"%.2f", tr] : @"header"];
+    [_flipField setPlaceholderString:flip > 0 ? [NSString stringWithFormat:@"%.0f", flip] : @"header"];
+    BOOL on = (mode != 0);
+    [_t1MapPopup setEnabled:mode == 2];
+    for (NSTextField *t in @[_t10BloodField, _t10TissueField, _r1Field, _trField, _flipField]) [t setEnabled:on];
+    NSString *header = dce ? [NSString stringWithFormat:@"DCE header: TR %@, flip %@, %@.",
+                              tr > 0 ? [NSString stringWithFormat:@"%.2f ms", tr] : @"missing",
+                              flip > 0 ? [NSString stringWithFormat:@"%.0f°", flip] : @"missing",
+                              field > 0 ? [NSString stringWithFormat:@"%.1f T", field] : @"field strength missing (1.5 T assumed)"]
+                           : @"Choose the 4D DCE series as viewer to see its TR and flip angle.";
+    NSString *note = mode == 0
+        ? @"Off: as in the original plugin. Ktrans, ve and vp are biased (vp about doubled); use only for comparisons within one protocol."
+        : mode == 1
+        ? @"Spoiled gradient echo assumed. Empty fields use the defaults shown. One tissue T1 for every pixel: a 20 % error moves Ktrans by about 20–35 %."
+        : @"Spoiled gradient echo assumed. Per-pixel T1 from the map (ms or s, detected; any slices or orientation). Pixels outside it use the tissue T1.";
+    [_concInfo setStringValue:[NSString stringWithFormat:@"%@ %@ The arterial (and venous) curve always uses the blood T1.", header, note]];
 }
 
 - (void)windowDidBecomeKey:(NSNotification *)note

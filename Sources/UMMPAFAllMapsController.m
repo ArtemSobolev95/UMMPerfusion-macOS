@@ -8,6 +8,7 @@
 //
 
 #import "UMMPAFAllMapsController.h"
+#import "UMMPConcentration.h"
 #import "UMMPIsiXSupport.h"
 
 
@@ -435,6 +436,13 @@
 	bl = [baseLineLength intValue];
 	tracer = [tracerButton indexOfSelectedItem];
 	htc = [hematocrit doubleValue];
+
+    // IsiX port: DCE signal to concentration (DSC Tools, DCE concentration)
+    if (tracer <= 1) {
+        NSString *concSummary = nil, *concError = UMMPConcPrepare(vc, &concSummary);
+        if (concError) { NSRunAlertPanel(@"DCE concentration", @"%@", @"OK", nil, nil, concError); return; }
+        NSLog(@"UMMPerfusion DCE %@", concSummary);
+    } else UMMPConc.mode = 0;
 	//n = [_viewer maxMovieIndex];
 	n = stop-start;
 	
@@ -594,7 +602,7 @@
 	}
 	NSDate *startTime = [NSDate date];
 	
-	lmuEnhancement(aif, n, bl, tracer);
+	UMMPDCEEnhance(aif, n, bl, tracer, UMMPConc.t10Blood);
 	
 	// Adapt AIF to Hematocrit
 	double htcDifference = 1-htc;
@@ -751,7 +759,7 @@
 						double *curveFit = (double *)calloc(n, sizeof(double));
 						
 						// Enhancement TISSUE
-						lmuEnhancement(tissue, n, bl, tracer);
+						UMMPDCEEnhance(tissue, n, bl, tracer, UMMPConcTissueT10(sli, i));
 						
 						double pf = NAN, vd = NAN, mt = NAN, imt = NAN, iv = NAN, ef = NAN, per = NAN, correctedAkaikeError = NAN, chiSquare = NAN;  // IsiX port: unset outputs were garbage
 						

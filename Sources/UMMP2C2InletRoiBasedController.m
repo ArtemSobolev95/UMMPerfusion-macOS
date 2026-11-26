@@ -7,6 +7,7 @@
 //
 
 #import "UMMP2C2InletRoiBasedController.h"
+#import "UMMPConcentration.h"
 
 @implementation UMMP2C2InletRoiBasedController
 
@@ -304,6 +305,13 @@
 	bl = [baseLineLength intValue];
 	tracer = [tracerButton indexOfSelectedItem];
 	htc = [hematocrit doubleValue];
+
+    // IsiX port: DCE signal to concentration (DSC Tools, DCE concentration)
+    if (tracer <= 1) {
+        NSString *concSummary = nil, *concError = UMMPConcPrepare(vc, &concSummary);
+        if (concError) { NSRunAlertPanel(@"DCE concentration", @"%@", @"OK", nil, nil, concError); return; }
+        NSLog(@"UMMPerfusion DCE %@", concSummary);
+    } else UMMPConc.mode = 0;
 	n = stop-start;
 	
 	aif      =  (float*)    calloc(n, sizeof(float));
@@ -416,9 +424,9 @@
     double curveFit[n];
 	
     // Enhancement of AIF and TISSUE
-    lmuEnhancement(aif, n, bl, tracer);
-    lmuEnhancement(vif, n, bl, tracer);
-    lmuEnhancement(tissue, n, bl, tracer);
+    UMMPDCEEnhance(aif, n, bl, tracer, UMMPConc.t10Blood);
+    UMMPDCEEnhance(vif, n, bl, tracer, UMMPConc.t10Blood);
+    UMMPDCEEnhance(tissue, n, bl, tracer, UMMPConcTissueT10ForROI(tissueRoi, [[vc pixList:start] objectAtIndex:[tissueRoiRec slice]], [tissueRoiRec slice]));
 	
     // Adapt AIF and VIF to Hematocrit
     double htcDifference = 1-htc;

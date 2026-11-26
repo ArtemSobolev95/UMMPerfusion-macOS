@@ -12,12 +12,12 @@ Apple silicon and Intel. It is a port of
 
 ## Download
 
-Current version: **1.5.3.2-port.8**. Click the package for your viewer:
+Current version: **1.5.3.2-port.9**. Click the package for your viewer:
 
 | Viewer | Download | macOS | Mac |
 |---|---|---|---|
-| IsiX DICOM Viewer 6.0.3+ (GitHub build) | [**UMMPerfusion-IsiX-1.5.3.2-port.8.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-IsiX-1.5.3.2-port.8.zip) | 15 or later | Apple silicon and Intel |
-| Horos 4.0.1 | [**UMMPerfusion-Horos-1.5.3.2-port.8.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-Horos-1.5.3.2-port.8.zip) | 11 or later | Apple silicon and Intel |
+| IsiX DICOM Viewer 6.0.3+ (GitHub build) | [**UMMPerfusion-IsiX-1.5.3.2-port.9.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-IsiX-1.5.3.2-port.9.zip) | 15 or later | Apple silicon and Intel |
+| Horos 4.0.1 | [**UMMPerfusion-Horos-1.5.3.2-port.9.zip**](https://github.com/ArtemSobolev95/UMMPerfusion-macOS/raw/main/downloads/UMMPerfusion-Horos-1.5.3.2-port.9.zip) | 11 or later | Apple silicon and Intel |
 
 Each package works on both kinds of Mac. The App Store version of IsiX loads no plugins; use the
 [GitHub build of IsiX](https://github.com/ThalesMMS/IsiX-DICOM-Viewer-macOS/releases).
@@ -66,6 +66,10 @@ Added in this port:
   - **Colour overlay** of ΔT1 or of the FTB classes on the post-contrast T1
   - **Follow-up** table per patient: change from baseline and nadir, modified-RANO volumetric
     ranges, CSV export
+- **DCE signal → concentration** before the fit (SPGR equation; TR and flip angle from the
+  header): fixed pre-contrast T1 (blood / tissue) or a **T1 map** sampled per pixel in scanner
+  coordinates. The original plugin fitted signal enhancement as if it were concentration, which
+  roughly doubles vp and underestimates ve
 - DCE maps over the whole slice with masking and smoothing; robust failed-fit handling
 - Correct timing (Δt) from DICOM acquisition times, multithreading fixes, dark mode, colour maps
   (Rainbow2 by default)

@@ -4,7 +4,8 @@ UMMPerfusion for Horos — version @VERSION@
 DSC/DCE MRI perfusion plugin. A port of UMMPerfusion (Universitätsmedizin Mannheim, BSD
 licence) to IsiX DICOM Viewer and Horos on current macOS, with DSC additions: leakage correction with a
 K2 map, delay-insensitive oSVD deconvolution, brain mask, rCBV/rCBF normalisation, ROI
-statistics with CSV export, AIF check and AIF search.
+statistics with CSV export, AIF check and AIF search; for DCE, conversion of the signal to
+contrast-agent concentration with a fixed T1 or a T1 map.
 
 RESEARCH USE ONLY. Not a medical device, not validated for diagnosis. Check values against
 the software you normally use before relying on them.
@@ -47,6 +48,20 @@ QUICK START (DSC, brain tumour)
 
 Checks: Δt in the panel's chart matches the temporal resolution; grey matter about 2-3x
 white matter on the CBV map. Console.app, filter "UMMP", shows timing, mask and warnings.
+
+
+QUICK START (DCE, modified Tofts)
+--------------------------------
+1. Open the 4D T1-weighted DCE series (spoiled gradient echo: VIBE, THRIVE, LAVA, FLASH).
+2. DSC Tools > Calculation options > "Fit input": "Concentration, fixed pre-contrast T1"
+   (or "T1 map" with a T1 map open in another viewer). The line below shows TR, flip angle
+   and field strength from the header; empty fields use the defaults shown.
+3. Image filters > UMMPerfusion: Modified Tofts pixel map, arterial ROI in a large artery
+   (central pixels only), tissue ROI around the region. Maps: Ktrans (ml/100 ml/min = /min x
+   100), ve and vp (ml/100 ml).
+With a fixed T1, fat and fatty marrow come out with a falsely high Ktrans (their T1 is much
+shorter); a T1 map avoids it. "Off" reproduces the original plugin (signal enhancement fitted
+as if it were concentration: vp about doubled, ve too low).
 
 
 QUICK START (ΔT1 and tumour burden)

@@ -111,6 +111,25 @@ per-curve show/hide; CSV export; follows ROI changes. Floats above the viewers.
   not run since the port (see TESTING.md).
 - Code clean-up of the original (dead shuttle-mode and 32-bit code, manual memory management).
 
+## 1.5.3.2-port.9
+
+DCE: signal to concentration before the fit (DSC Tools › Calculation options, "Fit input").
+
+- The original plugin fits relative (or absolute) signal enhancement as if it were concentration.
+  On spoiled gradient-echo DCE this biases the parameters (Tests/test_tofts.c, part B: ve −26…−44 %,
+  vp +98…+159 %), because the arterial signal saturates far more than tissue.
+- New: the SPGR signal equation is inverted per curve (Sources/UMMPConcentration.h):
+  R1 from S/S0 with TR and flip angle from the DICOM header (editable), C = (R1 − R10)/r1.
+  - **Fixed pre-contrast T1**: blood for the arterial and venous curves (1.55 s at 1.5 T, 1.93 s at
+    3 T), one tissue value for every pixel (1.30 s / 1.60 s); all editable, r1 default 4.5 /mM/s.
+  - **T1 map (per pixel)**: an open T1 map viewer (ms or s, detected) is sampled at every DCE pixel
+    in scanner coordinates, so other slices or orientation are fine; implausible values and pixels
+    outside the map use the fixed tissue T1. ROI fits use the mean T1 under the ROI.
+- All DCE models (ROI-based, pixel maps, 2CXM/uptake, 2-inlet, AF tools) use it; T2*-DSC is unchanged.
+  "Off" keeps the original behaviour.
+- Tests/test_tofts.c parts C and D: with the conversion the Tofts fit recovers Ktrans, ve, vp within
+  1 %; a tissue T1 off by ±20 % moves them by −21…+35 %.
+
 ## 1.5.3.2-port.8
 
 - **Standardised rCBV (sRCBV)**: rCBV on one scale for all patients and visits without a reference
